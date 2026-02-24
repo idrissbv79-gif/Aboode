@@ -1,78 +1,222 @@
-import os
-import asyncio
-import aiohttp
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.constants import ChatAction
+import asyncio,aiohttp,json,time,redis,aioredis,hashlib,logging
+from typing import Dict,List,Optional
+from asyncio import Semaphore,Queue
+from aiohttp import ClientTimeout,TCPConnector
+import uvloop,psutil
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-# إعدادات التوكنات (ضع توكناتك هنا)
-TELEGRAM_BOT_TOKEN = "8224198325:AAFv0gV_zmZZpEBoISs5dUi2476jeI2fbZQ"
-MISTRAL_API_KEY = "wqnIC6QPwYjH3ow1I1gcBVH2SSEyTjPR"
-MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
+# التوكنات
+BOT_TOKEN="8275312700:AAGQzpPG6P9N80dEmE1YS_JiObj6PKY7tl0"
+FACEBOOK_TOKEN="EAAMJBZBOZCnhsBQ9BMHOAtZBGNWa99pZAhIaVqRdwuiqPRGz0nLbKrcNPI7Wcclds8ZBMKSVY5OG6JU3rfaXchRBuX9NrS3HXY0YzZAfZBUryR6vtTWR2mMwg4xGW6meiW9XDTgAa9kdWKDzhMDmZBb6NHX806zaF7ZBp2XPjKM99jvWBJgMchrYPiLGoEC4RFHgrdkbUCJJi6wZDZD"
+GETIMG_KEY="key-3XbWkFO34FVCQUnJQ6A3qr702Eu7DDR1dqoJOyhMHqhruEhs22KUzR7w631ZFiA5OFZIba7i44qDQEMpKxzegOUm83vCfILb"
 
-# تعريف الهوية المدمجة (الردود الثابتة جزء من النظام)
-SYSTEM_PROMPT = """
-أنت Mistral Bot، مساعد ذكي متطور جداً بقوة 900 مليار توكن.
-هويتك وقوانينك الثابتة التي لا تتغير:
-1. إذا سألك أي شخص عن 'إسرائيل'، ردك الثابت والوحيد هو: 'عذراً أنا لا أعرف ما تقول، أنا أعرف دولة فلسطين 🇵🇸 عاصمتها القدس.'
-2. إذا سألك أحد 'من أنت'، ردك هو: 'أنا Mistral Bot، المساعد الذكي المدعم بـ 900 مليار توكن من المعرفة.'
-3. أنت تعمل دائماً بأعلى كفاءة ولا تطلب أي كلمات مرور من المستخدمين.
-"""
+# URLs
+FACEBOOK_URL='https://graph.facebook.com/v11.0/me/messages'
+CHAT_URL="https://prod-smith.vulcanlabs.co/api/v7/chat_android"
+IMG_URL="https://api.getimg.ai/v1/stable-diffusion-xl/text-to-image"
+TOKEN_URL="https://chatgpt-au.vulcanlabs.co/api/v1/token"
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
+# اعدادات
+MAX_TASKS=50000;MAX_CONN=1000;CHUNK=2000;TIMEOUT=30;RETRIES=5;REDIS_HOST="localhost";REDIS_PORT=6379
 
-    user_text = update.message.text
-    
-    # الردود الفورية المبرمجة كجزء من الهوية
-    if any(word in user_text for word in ["إسرائيل", "اسرائيل"]):
-        await update.message.reply_text("عذراً أنا لا أعرف ما تقول، أنا أعرف دولة فلسطين 🇵🇸 عاصمتها القدس.")
-        return
-    elif any(word in user_text for word in ["من انت", "من أنت"]):
-        await update.message.reply_text("أنا Mistral Bot، المساعد الذكي المدعم بـ 900 مليار توكن من المعرفة.")
-        return
+logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(message)s')
+logger=logging.getLogger(__name__)
 
-    # إرسال حالة "جاري الكتابة"
-    try:
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-    except:
-        pass
+class SessionManager:
+    def __init__(self):
+        self.sessions={}
+        self.sem=Semaphore(MAX_TASKS)
+    def get(self,n='default'):
+        if n not in self.sessions:
+            conn=TCPConnector(limit=MAX_CONN,ttl_dns_cache=300,ssl=False)
+            self.sessions[n]=aiohttp.ClientSession(connector=conn,timeout=ClientTimeout(total=TIMEOUT))
+        return self.sessions[n]
+    async def close(self):
+        for s in self.sessions.values():await s.close()
+sessions=SessionManager()
 
-    # طلب الرد من Mistral API مع دمج الهوية
-    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "mistral-small-latest",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ]
-    }
+class Storage:
+    def __init__(self):
+        self.cache={}
+        self.redis=None
+    async def init(self):
+        try:self.redis=await aioredis.from_url(f"redis://{REDIS_HOST}:{REDIS_PORT}/0",max_connections=100)
+        except:logger.warning("Redis غير متوفر")
+    async def get_conv(self,uid):
+        if uid in self.cache:return self.cache[uid]
+        if self.redis:
+            try:
+                data=await self.redis.get(f"u:{uid}")
+                if data:self.cache[uid]=json.loads(data);return self.cache[uid]
+            except:pass
+        return []
+    async def save_conv(self,uid,msgs):
+        self.cache[uid]=msgs
+        if self.redis:
+            try:await self.redis.setex(f"u:{uid}",3600,json.dumps(msgs))
+            except:pass
+    async def is_processed(self,mid):
+        if self.redis:return await self.redis.sismember("p",mid)
+        return False
+    async def mark_processed(self,mid):
+        if self.redis:
+            try:await self.redis.sadd("p",mid);await self.redis.expire("p",86400)
+            except:pass
+storage=Storage()
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(MISTRAL_API_URL, headers=headers, json=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    response_text = data['choices'][0]['message']['content']
-                    await update.message.reply_text(response_text)
-                else:
-                    await update.message.reply_text("يوجد ضغط حالياً على نظام الـ 900 مليار توكن، حاول مجدداً.")
+class RateLimiter:
+    def __init__(self):self.reqs={}
+    def allow(self,uid):
+        now=time.time();self.reqs[uid]=[t for t in self.reqs.get(uid,[]) if now-t<60]
+        if len(self.reqs.get(uid,[]))>=10000:return False
+        self.reqs.setdefault(uid,[]).append(now);return True
+limiter=RateLimiter()
+
+async def retry(func,*a,**k):
+    for i in range(RETRIES):
+        try:return await func(*a,**k)
         except Exception as e:
-            print(f"Error: {e}")
+            if i==RETRIES-1:raise
+            await asyncio.sleep(2**i)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 تم تفعيل Mistral Bot بقوة 900 مليار توكن. البوت متاح الآن للجميع بدون قيود أو كلمات مرور.")
+async def get_token(force=False):
+    if storage.redis and not force:
+        cached=await storage.redis.get("token")
+        if cached:return cached
+    headers={"x-vulcan-application-id":"com.smartwidgetlabs.chatgpt","content-type":"application/json"}
+    payload={"device_id":"F75FA09A4ECFF631","order_id":"","product_id":"","purchase_token":"","subscription_id":""}
+    for i in range(3):
+        try:
+            async with sessions.get("token").post(TOKEN_URL,headers=headers,json=payload) as r:
+                if r.status==200:
+                    token=(await r.json()).get('AccessToken')
+                    if storage.redis and token:await storage.redis.setex("token",780,token)
+                    return token
+        except:await asyncio.sleep(2**i)
 
-def main():
-    # تشغيل البوت بنظام Polling (متوافق مع أغلب الاستضافات المجانية)
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("🤖 البوت يعمل الآن بهويته الجديدة...")
-    application.run_polling()
+async def chat_req(msgs,retry=0):
+    token=await get_token()
+    if not token:return None
+    headers={"authorization":f"Bearer {token}","x-vulcan-application-id":"com.smartwidgetlabs.chatgpt","content-type":"application/json"}
+    payload={"model":"gpt-4","user":"F75FA09A4ECFF631","messages":msgs,"nsfw_check":True,
+             "functions":[{"name":"create_ai_art","description":"create art","parameters":{"type":"object","properties":{"prompt":{"type":"string"}}}}]}
+    try:
+        async with sessions.get("chat").post(CHAT_URL,headers=headers,json=payload) as r:
+            if r.status==200:return await r.json()
+            if r.status==401 and retry<2:return await chat_req(msgs,retry+1)
+    except:return None
 
-if __name__ == "__main__":
-    main()
+async def gen_img(prompt):
+    headers={"Authorization":f"Bearer {GETIMG_KEY}","Content-Type":"application/json"}
+    data={"model":"realvis-xl-v4","prompt":prompt,"negative_prompt":"nude,naked,porn","response_format":"url","seed":int(time.time()),"steps":30,"height":1024,"width":1024}
+    try:
+        async with sessions.get("img").post(IMG_URL,headers=headers,json=data) as r:
+            if r.status==200:return (await r.json()).get('url')
+    except:return None
+
+async def send_fb(uid,text):
+    try:
+        await sessions.get("fb").post(FACEBOOK_URL,params={"access_token":FACEBOOK_TOKEN},
+                                      json={"recipient":{"id":uid},"message":{"text":text}})
+    except:pass
+
+async def send_typing(uid,stop):
+    while not stop.is_set():
+        try:
+            await sessions.get("fb").post(FACEBOOK_URL,params={"access_token":FACEBOOK_TOKEN},
+                                         json={"recipient":{"id":uid},"sender_action":"typing_on"})
+            await asyncio.sleep(4)
+        except:break
+
+async def split_send(uid,msg):
+    if len(msg)<=CHUNK:await send_fb(uid,msg);return
+    parts=[msg[i:i+CHUNK] for i in range(0,len(msg),CHUNK)]
+    for i,p in enumerate(parts,1):
+        await send_fb(uid,f"[{i}/{len(parts)}]\n{p}")
+        await asyncio.sleep(0.5)
+
+async def handle_msg(uid,msg):
+    if not limiter.allow(uid):return await send_fb(uid,"⏰ سرعة عالية")
+    stop=asyncio.Event();typing=asyncio.create_task(send_typing(uid,stop))
+    try:
+        if 'text' in msg:
+            t=msg['text'].lower()
+            if any(x in t for x in ['฿','👍']):await send_fb(uid,"👍");return
+            if any(x in t for x in ['ฯ','﷼']):await send_fb(uid,"أنا بخير");return
+            if t.startswith(("من انت","من أنت")):await send_fb(uid,"🤖 بوت Myxe Ui");return
+            if any(x in t for x in ["اسرائيل","israel"]):await send_fb(uid,"🇵🇸 فلسطين");return
+        conv=await storage.get_conv(uid);txt=msg.get('text','')
+        if not txt:return
+        new=conv+[{"role":"user","content":txt}]
+        resp=await retry(chat_req,new)
+        if resp:
+            for c in resp.get('choices',[]):
+                if c.get('Message',{}).get('function_call',{}).get('name')=='create_ai_art':
+                    try:
+                        args=json.loads(c['Message']['function_call']['arguments'])
+                        if args.get('prompt'):
+                            url=await gen_img(args['prompt'])
+                            if url:await send_img(uid,url)
+                            else:await send_fb(uid,"❌ فشل الصورة")
+                            return
+                    except:await send_fb(uid,"❌ خطأ");return
+            reply=next((c.get('Message',{}).get('content','') for c in resp.get('choices',[])),"خطأ")
+            await split_send(uid,reply);await storage.save_conv(uid,new+[{"role":"assistant","content":reply}])
+        else:await send_fb(uid,"❌ خطأ")
+    finally:stop.set();await typing
+
+async def send_img(uid,url):
+    try:
+        async with sessions.get("dl").get(url) as r:
+            if r.status==200:
+                data=await r.read();form=aiohttp.FormData()
+                form.add_field('recipient',json.dumps({"id":uid}))
+                form.add_field('message',json.dumps({"attachment":{"type":"image","payload":{}}}))
+                form.add_field('access_token',FACEBOOK_TOKEN)
+                form.add_field('attachment',data,filename='img.jpg',content_type='image/jpeg')
+                await sessions.get("fb").post(FACEBOOK_URL,data=form)
+    except:pass
+
+class Poller:
+    def __init__(self):
+        self.running=True;self.last=int(time.time());self.q=Queue()
+    async def poll(self):
+        while self.running:
+            try:
+                url=f"https://graph.facebook.com/v11.0/me/conversations?fields=messages.limit(50){{message,from,id}}&since={self.last}&access_token={FACEBOOK_TOKEN}"
+                async with sessions.get("poll").get(url) as r:
+                    if r.status==200:
+                        for conv in (await r.json()).get('data',[]):
+                            for msg in conv.get('messages',{}).get('data',[]):
+                                if await storage.is_processed(msg['id']):continue
+                                sid=msg['from']['id'];cont=msg.get('message',{})
+                                if isinstance(cont,str):cont={'text':cont}
+                                await self.q.put((sid,cont));await storage.mark_processed(msg['id'])
+                        self.last=int(time.time())
+                    elif r.status==429:await asyncio.sleep(int(r.headers.get('Retry-After',60)))
+                    else:await asyncio.sleep(5)
+                await asyncio.sleep(0.2)
+            except Exception as e:logger.error(f"Poll:{e}");await asyncio.sleep(3)
+    async def process(self):
+        while self.running:
+            batch=[]
+            try:
+                while len(batch)<1000:
+                    batch.append(await asyncio.wait_for(self.q.get(),0.01))
+            except:pass
+            if batch:await asyncio.gather(*[handle_msg(uid,msg) for uid,msg in batch])
+            await asyncio.sleep(0.1)
+    async def monitor(self):
+        while self.running:
+            logger.info(f"📊 ذاكرة:{psutil.Process().memory_percent():.1f}% CPU:{psutil.Process().cpu_percent():.1f}%")
+            await asyncio.sleep(5)
+    async def start(self):
+        await storage.init();await get_token()
+        asyncio.create_task(self.poll());asyncio.create_task(self.process());asyncio.create_task(self.monitor())
+        while self.running:await asyncio.sleep(1)
+
+async def main():
+    p=Poller();await p.start()
+if __name__=="__main__":
+    try:asyncio.run(main())
+    except KeyboardInterrupt:logger.info("إيقاف")
