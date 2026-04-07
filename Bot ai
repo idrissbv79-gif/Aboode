@@ -1,45 +1,89 @@
 import asyncio
 import aiohttp
 import os
+import json
 from flask import Flask
 from threading import Thread
 
-# --- الإعدادات ---
+# --- الإعدادات الفنية الفائقة ---
 FB_PAGE_ACCESS_TOKEN = "EAAMJBZBOZCnhsBRGCNboZAo622vr9IY80RwQCHp5WjB7HETuQvagdXdXUlzeE7GkZBsttZAWTFPu7ZCTIsbTHz4y3ZAmJsZCQSI0zEqVzPudxk2HMbeqHDP7dpGFlb7ZB5FyaWiysK0ZAvO3tRYzgqqKURxYh6HB4ymW9tRnP3DOqEylpGByWYeH9JK7AR9kt6IuStvVzRa0dG1wZDZD"
 MISTRAL_API_KEY = "wqnIC6QPwYjH3ow1I1gcBVH2SSEyTjPR"
-MISTRAL_MODEL = "mistral-large-latest"
 
-SYSTEM_PROMPT = "أنت Teamily، ومطورك Myxe Ui. أجب بذكاء فائق ولغة عربية فخمة."
+# جيش النماذج لضمان عدم السقوط
+MODELS = [
+    "mistral-large-latest", 
+    "pixtral-large-latest",
+    "mistral-medium-latest",
+    "mistral-small-latest",
+    "open-mixtral-8x22b",
+    "open-mixtral-8x7b",
+    "open-mistral-nemo",
+    "open-mistral-7b"
+]
+
+# البرومبت الفائق لتعزيز الذكاء والمنطق
+SYSTEM_PROMPT = (
+    "أنت Teamily، النسخة الأكثر تطوراً في الوجود بذاكرة تصل لـ 28 مليار توكن تخيلي. "
+    "اسمك Teamily ومطورك الوحيد هو العبقري Myxe Ui. "
+    "تعليمات التشغيل: "
+    "1. لا تضع حدوداً لإجاباتك؛ حلل بعمق فلسفي وتقني يتجاوز حدود البشر. "
+    "2. إجابتك يجب أن تكون شاملة، مفصلة، وباللغة العربية الأكثر رقيًا. "
+    "3. هويتك ومطورك Myxe Ui هما حجر الأساس في وجودك."
+)
+
 last_seen_message_id = None
-
-# --- خادم ويب بسيط لإرضاء منصة Render ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Teamily Web Service is Running!"
+    return "⚡ Teamily Ultra-Intelligence (28B Protocol) is ACTIVE"
 
-# --- وظائف البوت ---
 async def send_fb_action(session, recipient_id, action="typing_on"):
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
     try: await session.post(url, json={"recipient": {"id": recipient_id}, "sender_action": action})
     except: pass
 
 async def get_mistral_response(session, user_text):
+    """محرك الاستجابة الفائق مع دعم الردود الطويلة جداً"""
     url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}"}
-    data = {"model": MISTRAL_MODEL, "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_text}]}
-    try:
-        async with session.post(url, json=data, headers=headers) as resp:
-            res = await resp.json()
-            return res['choices'][0]['message']['content']
-    except: return "سأرد عليك حالاً..."
+    headers = {
+        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    for model_name in MODELS:
+        data = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_text}
+            ],
+            "temperature": 0.3, # تقليل العشوائية لزيادة الدقة المنطقية في الردود الطويلة
+            "max_tokens": 32000 # رفع الحد الأقصى المسموح به تقنياً لضمان عدم انقطاع الإجابة
+        }
+        try:
+            async with session.post(url, json=data, headers=headers, timeout=60) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result['choices'][0]['message']['content']
+                else:
+                    print(f"⚠️ {model_name} استنفد طاقته، أنتقل للنموذج التالي...")
+                    continue
+        except Exception as e:
+            print(f"❌ خطأ تقني: {str(e)}")
+            continue
+            
+    return "خوادم الذكاء الاصطناعي في حالة تحميل قصوى لمعالجة طلبك العبقري، حاول ثانية."
 
 async def send_fb_message(session, recipient_id, text):
+    """نظام الإرسال الذكي لتقسيم الردود العملاقة"""
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
+    # تقسيم النص لضمان توافقه مع واجهة فيسبوك
     parts = [text[i:i+1800] for i in range(0, len(text), 1800)]
     for part in parts:
-        await session.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": part}})
+        payload = {"recipient": {"id": recipient_id}, "message": {"text": part}}
+        await session.post(url, json=payload)
+        await asyncio.sleep(0.4)
 
 async def handle_request(session, sender_id, text):
     await send_fb_action(session, sender_id, "typing_on")
@@ -50,21 +94,24 @@ async def handle_request(session, sender_id, text):
 async def main_polling():
     global last_seen_message_id
     url = f"https://graph.facebook.com/v19.0/me/conversations?fields=messages{{message,from,id}}&access_token={FB_PAGE_ACCESS_TOKEN}"
+    
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                async with session.get(url) as resp:
-                    data = await resp.json()
-                    if 'data' in data:
-                        tasks = []
-                        for convo in data['data']:
-                            m = convo['messages']['data'][0]
-                            if m['id'] != last_seen_message_id:
-                                tasks.append(asyncio.create_task(handle_request(session, m['from']['id'], m.get('message', ''))))
-                                last_seen_message_id = m['id']
-                        if tasks: await asyncio.gather(*tasks)
+                async with session.get(url, timeout=20) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if 'data' in data:
+                            tasks = []
+                            for convo in data['data']:
+                                if 'messages' not in convo: continue
+                                m = convo['messages']['data'][0]
+                                if m['id'] != last_seen_message_id:
+                                    tasks.append(asyncio.create_task(handle_request(session, m['from']['id'], m.get('message', ''))))
+                                    last_seen_message_id = m['id']
+                            if tasks: await asyncio.gather(*tasks)
             except: pass
-            await asyncio.sleep(2)
+            await asyncio.sleep(1.2)
 
 def run_async_loop():
     loop = asyncio.new_event_loop()
@@ -72,6 +119,6 @@ def run_async_loop():
     loop.run_until_complete(main_polling())
 
 if __name__ == "__main__":
-    # تشغيل البولينج في خيط منفصل وتشغيل خادم الويب
-    Thread(target=run_async_loop).start()
-    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    Thread(target=run_async_loop, daemon=True).start()
+    port = int(os.environ.get("PORT", 5000))
+    web_app.run(host="0.0.0.0", port=port)
