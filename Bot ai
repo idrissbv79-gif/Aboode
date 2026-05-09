@@ -38,7 +38,6 @@ class AetherisEngine:
         
         self.processed_ids = set()
         self.my_page_id = None
-        # الحفاظ على توزيع المهام لضمان استقرار الذاكرة 512MB
         self.executor = ThreadPoolExecutor(max_workers=20) 
 
     def identify_self(self):
@@ -74,18 +73,21 @@ class AetherisEngine:
             response = self.session.post(url, json=payload, timeout=15)
             result = response.json()
             return result['choices'][0]['message']['content'].strip()
-        except:
+        except Exception as e:
+            logging.error(f"Mistral Error: {e}")
             return None
 
     def send_message(self, recipient_id, message_text):
         """إرسال الرد وتجزئته وتأمين النظافة اللغوية"""
-        self.send_action(recipient_id, "typing_off")
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
         chunks = [message_text[i:i+2000] for i in range(0, len(message_text), 2000)]
         for chunk in chunks:
             data = {"recipient": {"id": recipient_id}, "message": {"text": chunk}, "messaging_type": "RESPONSE"}
-            try: self.session.post(url, json=data)
+            try: 
+                self.session.post(url, json=data)
             except: pass
+        # إنهاء حالة الكتابة بعد الإرسال
+        self.send_action(recipient_id, "typing_off")
 
     def handle_request(self, sender_id, text, msg_id):
         """معالجة الطلب بذكاء وتأمين الرد على كل رسالة"""
@@ -95,7 +97,9 @@ class AetherisEngine:
         # تنظيف الذاكرة المؤقتة دورياً
         if len(self.processed_ids) > 1000: self.processed_ids.clear()
         
+        # إرسال حالة الكتابة
         self.send_action(sender_id, "typing_on")
+        
         response = self.get_ai_response(text)
         
         if response:
@@ -104,35 +108,38 @@ class AetherisEngine:
             self.send_action(sender_id, "typing_off")
 
     def run_pulse(self):
-        """نبض النظام - يفحص الرسائل كل ثانية لضمان الاستجابة الفورية"""
+        """نبض النظام - جلب الرسائل الجديدة فقط"""
         self.identify_self()
         while True:
             try:
-                # جلب آخر المحادثات مع الرسالة الأخيرة لكل منها
-                url = f"https://graph.facebook.com/v21.0/me/conversations?fields=messages.limit(1){{message,from,id}}&access_token={self.FB_TOKEN}"
-                data = self.session.get(url).json()
+                # تم رفع limit إلى 5 لضمان عدم تفويت الرسائل المتتالية
+                url = f"https://graph.facebook.com/v21.0/me/conversations?fields=messages.limit(5){{message,from,id}}&access_token={self.FB_TOKEN}"
+                res = self.session.get(url)
+                data = res.json()
                 
                 if 'data' in data:
                     for conv in data['data']:
                         if 'messages' in conv:
-                            msg = conv['messages']['data'][0]
-                            m_id = msg.get('id')
-                            s_id = msg.get('from', {}).get('id')
-                            text = msg.get('message')
+                            # فحص آخر 5 رسائل في كل محادثة
+                            for msg in conv['messages']['data']:
+                                m_id = msg.get('id')
+                                s_id = msg.get('from', {}).get('id')
+                                text = msg.get('message')
 
-                            # التأكد من أن الرسالة من المستخدم وليست من البوت، ولم يتم معالجتها
-                            if s_id and s_id != self.my_page_id and m_id not in self.processed_ids:
-                                self.executor.submit(self.handle_request, s_id, text, m_id)
+                                if s_id and s_id != self.my_page_id and m_id not in self.processed_ids:
+                                    # التغيير الجوهري: نتحقق من الـ ID قبل البدء بأي عملية
+                                    self.executor.submit(self.handle_request, s_id, text, m_id)
+                                    # نكسر الحلقة للمحادثة الحالية لمعالجة الأحدث أولاً
+                                    break 
             except Exception as e:
                 logging.warning(f"⚠️ تنبيه نظام: {e}")
             
-            # معدل الفحص: ثانية واحدة لضمان أعلى سرعة رد دون تعليق السيرفر
-            time.sleep(1.0) 
+            time.sleep(1.5) # مهلة بسيطة لتجنب Rate Limit الخاص بفيسبوك
 
 # --- واجهة الاستقرار لبيئة Render ---
 @app.route('/')
 def home():
-    return "Aetheris AI: Status Stable - Pulse Active (1s)", 200
+    return "Aetheris AI: Status Stable - Pulse Active", 200
 
 if __name__ == "__main__":
     aetheris = AetherisEngine()
