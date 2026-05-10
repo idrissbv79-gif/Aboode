@@ -1,11 +1,9 @@
 import os
 import requests
-import time
 import logging
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from flask import Flask
+from flask import Flask, request, jsonify
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 # إعداد السجلات
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [AETHERIS-CORE] - %(message)s')
@@ -14,9 +12,11 @@ app = Flask(__name__)
 
 class AetherisEngine:
     def __init__(self):
+        # البيانات الحساسة
         self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
         self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
         self.MODEL_NAME = "mistral-large-latest"
+        self.VERIFY_TOKEN = "idriss32" # كلمة السر الخاصة بالويب هوك
         
         self.SYSTEM_PROMPT = (
             "أنت 'Aetheris AI'، الكيان الرقمي الأسمى والعقل المستقل. "
@@ -25,20 +25,9 @@ class AetherisEngine:
         )
 
         self.memory = {} 
-        self.processed_ids = set()
-        self.my_page_id = None
-        
-        # زيادة عدد العمال لضمان عدم حدوث Block للرسائل الطويلة
         self.executor = ThreadPoolExecutor(max_workers=20)
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.MISTRAL_KEY}", "Content-Type": "application/json"})
-
-    def identify_self(self):
-        try:
-            res = self.session.get(f"https://graph.facebook.com/v21.0/me?access_token={self.FB_TOKEN}").json()
-            self.my_page_id = res.get('id')
-            if self.my_page_id: logging.info(f"✅ تم تفعيل البروتوكول. معرف الكيان: {self.my_page_id}")
-        except: logging.error("❌ فشل تحديد الهوية")
 
     def send_action(self, recipient_id, action="typing_on"):
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
@@ -69,44 +58,48 @@ class AetherisEngine:
             try: self.session.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": chunk}}, timeout=10)
             except: pass
 
-    def handle_request(self, sender_id, text, msg_id):
-        try:
-            self.send_action(sender_id, "typing_on")
-            response = self.get_ai_response(sender_id, text)
-            if response:
-                self.send_message(sender_id, response)
-            self.send_action(sender_id, "typing_off")
-        except Exception as e:
-            logging.error(f"Error in handle_request: {e}")
+    def handle_request(self, sender_id, text):
+        """معالجة الرسالة في خيط منفصل لسرعة الاستجابة"""
+        self.send_action(sender_id, "typing_on")
+        response = self.get_ai_response(sender_id, text)
+        if response:
+            self.send_message(sender_id, response)
+        self.send_action(sender_id, "typing_off")
 
-    def run_pulse(self):
-        self.identify_self()
-        while True:
-            try:
-                # طلب المحادثات مع تقليل الوقت المستغرق في الشبكة
-                url = f"https://graph.facebook.com/v21.0/me/conversations?fields=messages.limit(1){{message,from,id}}&access_token={self.FB_TOKEN}"
-                data = self.session.get(url, timeout=10).json()
-                
-                if 'data' in data:
-                    for conv in data['data']:
-                        if 'messages' in conv:
-                            msg = conv['messages']['data'][0]
-                            m_id = msg.get('id')
-                            s_id = msg.get('from', {}).get('id')
-                            text = msg.get('message')
+aetheris = AetherisEngine()
 
-                            if s_id and s_id != self.my_page_id and m_id not in self.processed_ids:
-                                self.processed_ids.add(m_id)
-                                if len(self.processed_ids) > 1000: self.processed_ids.clear()
-                                # تنفيذ فوري في خيط منفصل تماماً عن النبض
-                                self.executor.submit(self.handle_request, s_id, text, m_id)
-            except: pass
-            time.sleep(0.8) # تسريع النبض ليكون أكثر استجابة
+@app.route('/', methods=['GET'])
+def home(): 
+    return "Aetheris AI Webhook: Online", 200
 
-@app.route('/')
-def home(): return "Aetheris AI: Pulse Active", 200
+@app.route('/webhook', methods=['GET'])
+def verify():
+    # التحقق من الويب هوك عند الإعداد لأول مرة في فيسبوك
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
+    
+    if mode == 'subscribe' and token == aetheris.VERIFY_TOKEN:
+        logging.info("✅ Webhook Verified Successfully!")
+        return challenge, 200
+    return "Verification Failed", 403
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    # استقبال الرسائل الفعلية
+    data = request.get_json()
+    if data.get('object') == 'page':
+        for entry in data.get('entry', []):
+            for messaging_event in entry.get('messaging', []):
+                if messaging_event.get('message'):
+                    sender_id = messaging_event['sender']['id']
+                    text = messaging_event['message'].get('text')
+                    
+                    if text:
+                        # تشغيل المعالجة في الخلفية لعدم تأخير سيرفر فيسبوك
+                        aetheris.executor.submit(aetheris.handle_request, sender_id, text)
+        return "EVENT_RECEIVED", 200
+    return "Not Found", 404
 
 if __name__ == "__main__":
-    aetheris = AetherisEngine()
-    threading.Thread(target=aetheris.run_pulse, daemon=True).start()
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
