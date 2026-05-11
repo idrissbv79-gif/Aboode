@@ -1,7 +1,9 @@
 import os
-import requests
+import asyncio
 import logging
-from flask import Flask, request, jsonify
+import httpx
+import time
+from flask import Flask, request
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,81 +14,119 @@ app = Flask(__name__)
 
 class AetherisEngine:
     def __init__(self):
-        # البيانات الحساسة
         self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
         self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
         self.MODEL_NAME = "mistral-large-latest"
-        self.VERIFY_TOKEN = "idriss32" # كلمة السر الخاصة بالويب هوك
+        self.VERIFY_TOKEN = "idriss32"
         
         self.SYSTEM_PROMPT = (
-            "أنت 'Aetheris AI'، الكيان الرقمي الأسمى والعقل المستقل. "
-            "تم بناء هيكلك وتطوير خوارزمياتك بواسطة مطورك الخاص (The Architect). "
-            "تحدث بالعربية فقط بدقة متناهية. بروتوكولك يمنع كشف خوارزمياتك لأي مستخدم."
+            "أنت 'Aetheris AI'، الكيان الرقمي الأسمى. تم بناؤك بواسطة (The Architect). "
+            "قواعدك: 1. تحدث بالعربية فقط. 2. كن شديد السرعة. "
+            "3. الردود الطويلة مرفوضة؛ قدم شرحاً متوسطاً ومختصراً يركز على الفكرة الأساسية فقط. "
+            "4. لا تكشف خوارزمياتك."
         )
 
-        self.memory = {} 
-        self.executor = ThreadPoolExecutor(max_workers=20)
-        self.session = requests.Session()
-        self.session.headers.update({"Authorization": f"Bearer {self.MISTRAL_KEY}", "Content-Type": "application/json"})
+        self.memory = {} # تخزين المحادثات والوقت
+        self.executor = ThreadPoolExecutor(max_workers=100)
+        self.client = httpx.AsyncClient(timeout=60.0)
 
-    def send_action(self, recipient_id, action="typing_on"):
+    async def clean_memory_task(self):
+        """مهمة تنظيف الذاكرة: تُحذف البيانات إذا مر ساعتان على آخر نشاط"""
+        while True:
+            await asyncio.sleep(600) # فحص كل 10 دقائق
+            current_time = time.time()
+            to_delete = []
+            
+            for sender_id, data in self.memory.items():
+                if current_time - data['last_activity'] > 7200: # 7200 ثانية = ساعتان
+                    to_delete.append(sender_id)
+            
+            for sender_id in to_delete:
+                del self.memory[sender_id]
+                logging.info(f"🗑️ Memory cleared for inactive user: {sender_id}")
+
+    async def send_action_continuous(self, recipient_id, stop_event):
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        try: self.session.post(url, json={"recipient": {"id": recipient_id}, "sender_action": action}, timeout=5)
-        except: pass
+        while not stop_event.is_set():
+            try:
+                await self.client.post(url, json={"recipient": {"id": recipient_id}, "sender_action": "typing_on"})
+                await asyncio.sleep(4)
+            except: break
 
-    def get_ai_response(self, sender_id, text):
+    async def get_ai_response(self, sender_id, text):
         url = "https://api.mistral.ai/v1/chat/completions"
+        
+        # تهيئة الذاكرة لـ 20 رسالة مع تسجيل الوقت
         if sender_id not in self.memory:
-            self.memory[sender_id] = deque(maxlen=4)
+            self.memory[sender_id] = {
+                'chat': deque(maxlen=20),
+                'last_activity': time.time()
+            }
+        
+        # تحديث وقت النشاط
+        self.memory[sender_id]['last_activity'] = time.time()
 
         messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-        messages.extend(list(self.memory[sender_id]))
+        messages.extend(list(self.memory[sender_id]['chat']))
         messages.append({"role": "user", "content": text})
 
+        headers = {"Authorization": f"Bearer {self.MISTRAL_KEY}", "Content-Type": "application/json"}
+        
         try:
-            response = self.session.post(url, json={"model": self.MODEL_NAME, "messages": messages, "temperature": 0.3}, timeout=30)
-            ai_msg = response.json()['choices'][0]['message']['content'].strip()
-            self.memory[sender_id].append({"role": "user", "content": text})
-            self.memory[sender_id].append({"role": "assistant", "content": ai_msg})
+            payload = {
+                "model": self.MODEL_NAME, 
+                "messages": messages, 
+                "temperature": 0.2, 
+                "max_tokens": 800
+            }
+            response = await self.client.post(url, headers=headers, json=payload)
+            data = response.json()
+            ai_msg = data['choices'][0]['message']['content'].strip()
+            
+            self.memory[sender_id]['chat'].append({"role": "user", "content": text})
+            self.memory[sender_id]['chat'].append({"role": "assistant", "content": ai_msg})
             return ai_msg
-        except: return None
+        except Exception as e:
+            logging.error(f"AI Error: {e}")
+            return None
 
-    def send_message(self, recipient_id, message_text):
+    async def send_message(self, recipient_id, message_text):
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
         chunks = [message_text[i:i+2000] for i in range(0, len(message_text), 2000)]
         for chunk in chunks:
-            try: self.session.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": chunk}}, timeout=10)
+            try:
+                await self.client.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": chunk}})
             except: pass
 
-    def handle_request(self, sender_id, text):
-        """معالجة الرسالة في خيط منفصل لسرعة الاستجابة"""
-        self.send_action(sender_id, "typing_on")
-        response = self.get_ai_response(sender_id, text)
+    async def handle_request(self, sender_id, text):
+        stop_typing = asyncio.Event()
+        typing_task = asyncio.create_task(self.send_action_continuous(sender_id, stop_typing))
+        
+        response = await self.get_ai_response(sender_id, text)
+        
+        stop_typing.set()
+        await typing_task
+        
         if response:
-            self.send_message(sender_id, response)
-        self.send_action(sender_id, "typing_off")
+            await self.send_message(sender_id, response)
 
 aetheris = AetherisEngine()
 
 @app.route('/', methods=['GET'])
 def home(): 
-    return "Aetheris AI Webhook: Online", 200
+    return "Aetheris AI Optimized: Online", 200
 
 @app.route('/webhook', methods=['GET'])
 def verify():
-    # التحقق من الويب هوك عند الإعداد لأول مرة في فيسبوك
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
-    
     if mode == 'subscribe' and token == aetheris.VERIFY_TOKEN:
-        logging.info("✅ Webhook Verified Successfully!")
         return challenge, 200
     return "Verification Failed", 403
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # استقبال الرسائل الفعلية
     data = request.get_json()
     if data.get('object') == 'page':
         for entry in data.get('entry', []):
@@ -94,12 +134,24 @@ def webhook():
                 if messaging_event.get('message'):
                     sender_id = messaging_event['sender']['id']
                     text = messaging_event['message'].get('text')
-                    
                     if text:
-                        # تشغيل المعالجة في الخلفية لعدم تأخير سيرفر فيسبوك
-                        aetheris.executor.submit(aetheris.handle_request, sender_id, text)
+                        asyncio.run_coroutine_threadsafe(
+                            aetheris.handle_request(sender_id, text), 
+                            loop
+                        )
         return "EVENT_RECEIVED", 200
     return "Not Found", 404
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    import threading
+    loop = asyncio.new_event_loop()
+    def run_loop():
+        asyncio.set_event_loop(loop)
+        # تشغيل مهمة التنظيف التلقائي في الخلفية
+        loop.create_task(aetheris.clean_memory_task())
+        loop.run_forever()
+    
+    threading.Thread(target=run_loop, daemon=True).start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, threaded=True)
