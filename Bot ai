@@ -3,6 +3,7 @@ import asyncio
 import logging
 import httpx
 import time
+import re
 from flask import Flask, request
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -53,17 +54,35 @@ class AetherisEngine:
                 await asyncio.sleep(4)
             except: break
 
+    def split_text(self, text, limit=1900):
+        """تقسيم النص الطويل إلى أجزاء لا تتعدى 1900 حرف"""
+        if len(text) <= limit:
+            return [text]
+        
+        chunks = []
+        while text:
+            if len(text) <= limit:
+                chunks.append(text)
+                break
+            
+            # محاولة التقسيم عند آخر سطر جديد ليكون الشكل أجمل
+            split_pos = text.rfind('\n', 0, limit)
+            if split_pos == -1:
+                split_pos = limit
+            
+            chunks.append(text[:split_pos].strip())
+            text = text[split_pos:].strip()
+        return chunks
+
     async def get_ai_response(self, sender_id, text):
         url = "https://api.mistral.ai/v1/chat/completions"
         
-        # تهيئة الذاكرة لـ 20 رسالة مع تسجيل الوقت
         if sender_id not in self.memory:
             self.memory[sender_id] = {
                 'chat': deque(maxlen=20),
                 'last_activity': time.time()
             }
         
-        # تحديث وقت النشاط
         self.memory[sender_id]['last_activity'] = time.time()
 
         messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
@@ -77,7 +96,7 @@ class AetherisEngine:
                 "model": self.MODEL_NAME, 
                 "messages": messages, 
                 "temperature": 0.2, 
-                "max_tokens": 800
+                "max_tokens": 1500 # زيادة بسيطة للسماح بالشرح المتوسط
             }
             response = await self.client.post(url, headers=headers, json=payload)
             data = response.json()
@@ -92,11 +111,17 @@ class AetherisEngine:
 
     async def send_message(self, recipient_id, message_text):
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        chunks = [message_text[i:i+2000] for i in range(0, len(message_text), 2000)]
+        # استخدام دالة التقسيم الذكية
+        chunks = self.split_text(message_text, limit=1900)
+        
         for chunk in chunks:
             try:
                 await self.client.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": chunk}})
-            except: pass
+                # تأخير بسيط بين الأجزاء لضمان الترتيب في فيسبوك
+                if len(chunks) > 1:
+                    await asyncio.sleep(0.5)
+            except Exception as e:
+                logging.error(f"Send Error: {e}")
 
     async def handle_request(self, sender_id, text):
         stop_typing = asyncio.Event()
@@ -114,7 +139,7 @@ aetheris = AetherisEngine()
 
 @app.route('/', methods=['GET'])
 def home(): 
-    return "Aetheris AI Optimized: Online", 200
+    return "Aetheris AI Optimized & Chunked: Online", 200
 
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -147,7 +172,6 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     def run_loop():
         asyncio.set_event_loop(loop)
-        # تشغيل مهمة التنظيف التلقائي في الخلفية
         loop.create_task(aetheris.clean_memory_task())
         loop.run_forever()
     
