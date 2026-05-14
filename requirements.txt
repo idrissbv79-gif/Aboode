@@ -1,7 +1,9 @@
-requests
+httpx
+asyncio
 flask
 deep-translator
-gunicorn
+threading
+
 
 
 
