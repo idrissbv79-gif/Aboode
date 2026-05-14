@@ -1,8 +1,7 @@
 httpx
-asyncio
 flask
 deep-translator
-threading
+
 
 
 
