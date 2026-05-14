@@ -1,6 +1,8 @@
-requests==2.31.0
-flask==3.0.0
-deep-translator==1.11.4
+requests
+flask
+deep-translator
+gunicorn
+
 
 
 
