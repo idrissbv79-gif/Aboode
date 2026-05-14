@@ -1,22 +1,21 @@
-import requests
-import time
+import httpx
+import asyncio
 import json
 import os
-import threading
 from flask import Flask
 from deep_translator import GoogleTranslator
+from threading import Thread
 
 # --- إعدادات خادم الويب (Render Web Service) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "SwiftTranslate Pro is Running!"
+    return "SwiftTranslate Pro is Running with Async Power! 🚀"
 
 def run_web_server():
-    # ريندر يستخدم المنفذ PORT بشكل ديناميكي
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, use_reloader=False)
 
 # --- إعدادات البوت الأساسية ---
 PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPjfmsLDqZC6IFHjOyiDuyxvkMxpOzWcPYpLzq8vJOt2ZBquqcEPTGggmsnYwnEqHkotjTJlrh8pk19cbAVaj5ZAhIYWBdwjk0UI5b9ICOoAs7CD2zfezlPsZB7alH1ez9YMDXX6ZBaGjXrU3QZDZD'
@@ -60,120 +59,137 @@ LANGUAGES_MAP = {
 class FacebookPollingBot:
     def __init__(self):
         self.db_file = "bot_database.json"
-        self.load_data()
+        self.user_data = self.load_data()
         self.last_processed_message_id = None
+        self.client = httpx.AsyncClient(timeout=20.0)
 
     def load_data(self):
         if os.path.exists(self.db_file):
             try:
                 with open(self.db_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.user_data = data.get('user_data', {})
-            except: self.user_data = {}
-        else:
-            self.user_data = {}
+                    return json.load(f).get('user_data', {})
+            except: return {}
+        return {}
 
     def save_data(self):
         with open(self.db_file, 'w', encoding='utf-8') as f:
             json.dump({'user_data': self.user_data}, f, ensure_ascii=False, indent=4)
 
-    def get_user_name(self, user_id):
+    # --- التعديل: وظيفة حذف البيانات كل ساعتين ---
+    async def auto_clear_database(self):
+        """تقوم بمسح جميع بيانات المستخدمين من الذاكرة والملف كل ساعتين"""
+        while True:
+            await asyncio.sleep(7200)  # الانتظار لمدة ساعتين (2 * 60 * 60)
+            self.user_data = {}  # تفريغ البيانات في الذاكرة
+            self.save_data()     # تحديث الملف ليصبح فارغاً
+            print(f"🧹 [CLEANUP] تم حذف جميع بيانات المستخدمين بنجاح.")
+
+    async def get_user_name(self, user_id):
         url = f"https://graph.facebook.com/{VERSION}/{user_id}?fields=first_name&access_token={PAGE_ACCESS_TOKEN}"
         try:
-            response = requests.get(url).json()
-            return response.get('first_name', 'صديقي')
+            response = await self.client.get(url)
+            data = response.json()
+            return data.get('first_name', 'صديقي')
         except: return "صديقي"
 
-    def send_message(self, recipient_id, text):
+    async def send_message(self, recipient_id, text):
         url = f"https://graph.facebook.com/{VERSION}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
         payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
-        try: requests.post(url, json=payload)
-        except Exception as e: print(f"❌ Error: {e}")
+        try:
+            await self.client.post(url, json=payload)
+        except Exception as e:
+            print(f"❌ Error sending message: {e}")
 
-    def show_welcome_msg(self, user_id):
-        user_name = self.get_user_name(user_id)
+    async def show_welcome_msg(self, user_id):
+        user_name = await self.get_user_name(user_id)
         msg = (f"👋 مرحباً بك {user_name} في {BOT_NAME}!\n\n"
                f"🚀 أسرع بوت ترجمة على فيسبوك.\n"
                f"لإظهار قائمة اللغات وتغيير الإعدادات، أرسل الرقم (0).\n"
                f"أو ابدأ بإرسال أي نص لترجمته فوراً.")
-        self.send_message(user_id, msg)
+        await self.send_message(user_id, msg)
 
-    def show_menu(self, user_id):
+    async def show_menu(self, user_id):
         current_lang = self.user_data.get(user_id, {}).get('lang_name', 'العربية')
         menu = f"⚙️ **إعدادات الترجمة الحالية:** {current_lang}\n"
         menu += "---------------------------\n"
-        
-        # عرض اللغات في صف واحد رأسي منظم
         for k in range(1, 31):
             key = str(k)
             v = LANGUAGES_MAP[key]
-            # إضافة صفر قبل الأرقام الفردية لتنسيق الشكل (01, 02...)
             num = key.zfill(2)
             menu += f"{num}. {v['flag']} {v['name']}\n"
-
         menu += "\n🔄 أرسل رقم اللغة للاختيار، أو النص للترجمة."
-        self.send_message(user_id, menu)
+        await self.send_message(user_id, menu)
 
-    def get_latest_messages(self):
+    async def get_latest_messages(self):
         url = f"https://graph.facebook.com/{VERSION}/me/conversations?fields=messages{{message,from,id}}&access_token={PAGE_ACCESS_TOKEN}"
         try:
-            response = requests.get(url).json()
-            if 'data' in response and response['data']:
-                latest_convo = response['data'][0]
+            response = await self.client.get(url)
+            data = response.json()
+            if 'data' in data and data['data']:
+                latest_convo = data['data'][0]
                 if 'messages' in latest_convo:
                     return latest_convo['messages']['data'][0]
         except: return None
 
-    def process_logic(self):
-        print(f"--- {BOT_NAME} IS ONLINE ✅ ---")
+    async def process_logic(self):
+        print(f"--- {BOT_NAME} IS ONLINE ON RENDER ✅ ---")
+        
+        # --- تشغيل مهمة التنظيف التلقائي في الخلفية ---
+        asyncio.create_task(self.auto_clear_database())
+        
         while True:
-            latest_msg = self.get_latest_messages()
+            latest_msg = await self.get_latest_messages()
             if latest_msg:
                 msg_id = latest_msg['id']
                 user_id = str(latest_msg['from']['id'])
                 text = latest_msg.get('message', '').strip()
 
                 if user_id == PAGE_ID or msg_id == self.last_processed_message_id:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
                     continue
 
                 self.last_processed_message_id = msg_id
-                
-                if user_id not in self.user_data:
-                    self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
-                    self.show_welcome_msg(user_id)
-                    self.save_data()
-                    continue
+                asyncio.create_task(self.handle_user_request(user_id, text))
 
-                if text == "0" or text.lower() == "menu":
-                    self.show_menu(user_id)
-                
-                elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
-                    # التعامل مع الأرقام سواء كانت "1" أو "01"
-                    clean_text = str(int(text))
-                    selected = LANGUAGES_MAP[clean_text]
-                    self.user_data[user_id]['lang_code'] = selected['code']
-                    self.user_data[user_id]['lang_name'] = selected['name']
-                    self.save_data()
-                    self.send_message(user_id, f"✅ تم الحفظ: {selected['flag']} {selected['name']}")
-                
-                else:
-                    try:
-                        user_settings = self.user_data[user_id]
-                        translated = GoogleTranslator(source='auto', target=user_settings['lang_code']).translate(text)
-                        self.user_data[user_id]['count'] += 1
-                        self.save_data()
-                        
-                        reply = f"✨ ({user_settings['lang_name']}):\n\n{translated}"
-                        self.send_message(user_id, reply)
-                    except:
-                        self.send_message(user_id, "⚠️ خطأ في الترجمة، حاول لاحقاً.")
+            await asyncio.sleep(1)
 
-            time.sleep(2)
+    async def handle_user_request(self, user_id, text):
+        if user_id not in self.user_data:
+            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
+            await self.show_welcome_msg(user_id)
+            self.save_data()
+            return
+
+        if text == "0" or text.lower() == "menu":
+            await self.show_menu(user_id)
+        
+        elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
+            clean_text = str(int(text))
+            selected = LANGUAGES_MAP[clean_text]
+            self.user_data[user_id].update({'lang_code': selected['code'], 'lang_name': selected['name']})
+            self.save_data()
+            await self.send_message(user_id, f"✅ تم الحفظ: {selected['flag']} {selected['name']}")
+        
+        else:
+            try:
+                loop = asyncio.get_event_loop()
+                user_settings = self.user_data[user_id]
+                translated = await loop.run_in_executor(None, 
+                    lambda: GoogleTranslator(source='auto', target=user_settings['lang_code']).translate(text))
+                
+                self.user_data[user_id]['count'] += 1
+                self.save_data()
+                reply = f"✨ ({user_settings['lang_name']}):\n\n{translated}"
+                await self.send_message(user_id, reply)
+            except:
+                await self.send_message(user_id, "⚠️ خطأ في الترجمة، حاول لاحقاً.")
 
 if __name__ == "__main__":
-    # تشغيل خادم الويب للتعامل مع متطلبات Render
-    threading.Thread(target=run_web_server, daemon=True).start()
-    # تشغيل البوت
+    server_thread = Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+    
     bot = FacebookPollingBot()
-    bot.process_logic()
+    try:
+        asyncio.run(bot.process_logic())
+    except KeyboardInterrupt:
+        print("Stopping Bot...")
