@@ -1,181 +1,179 @@
-import os
-import asyncio
-import logging
-import httpx
+import requests
 import time
-import re
-from flask import Flask, request
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+import json
+import os
+import threading
+from flask import Flask
+from deep_translator import GoogleTranslator
 
-# إعداد السجلات
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - [AETHERIS-CORE] - %(message)s')
-
+# --- إعدادات خادم الويب (Render Web Service) ---
 app = Flask(__name__)
 
-class AetherisEngine:
+@app.route('/')
+def home():
+    return "SwiftTranslate Pro is Running!"
+
+def run_web_server():
+    # ريندر يستخدم المنفذ PORT بشكل ديناميكي
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
+
+# --- إعدادات البوت الأساسية ---
+PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPjfmsLDqZC6IFHjOyiDuyxvkMxpOzWcPYpLzq8vJOt2ZBquqcEPTGggmsnYwnEqHkotjTJlrh8pk19cbAVaj5ZAhIYWBdwjk0UI5b9ICOoAs7CD2zfezlPsZB7alH1ez9YMDXX6ZBaGjXrU3QZDZD'
+PAGE_ID = '61589538039390' 
+VERSION = 'v19.0'
+BOT_NAME = "SwiftTranslate Pro"
+
+LANGUAGES_MAP = {
+    "1": {"name": "الإنجليزية", "code": "en", "flag": "🇺🇸"},
+    "2": {"name": "الفرنسية", "code": "fr", "flag": "🇫🇷"},
+    "3": {"name": "الألمانية", "code": "de", "flag": "🇩🇪"},
+    "4": {"name": "الإسبانية", "code": "es", "flag": "🇪🇸"},
+    "5": {"name": "التركية", "code": "tr", "flag": "🇹🇷"},
+    "6": {"name": "الإيطالية", "code": "it", "flag": "🇮🇹"},
+    "7": {"name": "الروسية", "code": "ru", "flag": "🇷🇺"},
+    "8": {"name": "الصينية", "code": "zh-CN", "flag": "🇨🇳"},
+    "9": {"name": "اليابانية", "code": "ja", "flag": "🇯🇵"},
+    "10": {"name": "الكورية", "code": "ko", "flag": "🇰🇷"},
+    "11": {"name": "البرتغالية", "code": "pt", "flag": "🇵🇹"},
+    "12": {"name": "الهندية", "code": "hi", "flag": "🇮🇳"},
+    "13": {"name": "الإندونيسية", "code": "id", "flag": "🇮🇩"},
+    "14": {"name": "الهولندية", "code": "nl", "flag": "🇳🇱"},
+    "15": {"name": "السويدية", "code": "sv", "flag": "🇸🇪"},
+    "16": {"name": "البولندية", "code": "pl", "flag": "🇵🇱"},
+    "17": {"name": "اليونانية", "code": "el", "flag": "🇬🇷"},
+    "18": {"name": "التايلاندية", "code": "th", "flag": "🇹🇭"},
+    "19": {"name": "الفيتنامية", "code": "vi", "flag": "🇻🇳"},
+    "20": {"name": "العربية", "code": "ar", "flag": "🇩🇿"},
+    "21": {"name": "النرويجية", "code": "no", "flag": "🇳🇴"},
+    "22": {"name": "الدنماركية", "code": "da", "flag": "🇩🇰"},
+    "23": {"name": "الفنلندية", "code": "fi", "flag": "🇫🇮"},
+    "24": {"name": "المجرية", "code": "hu", "flag": "🇭🇺"},
+    "25": {"name": "التشيكية", "code": "cs", "flag": "🇨🇿"},
+    "26": {"name": "العبرية", "code": "he", "flag": "🇮🇱"},
+    "27": {"name": "الرومانية", "code": "ro", "flag": "🇷🇴"},
+    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮🇷"},
+    "29": {"name": "الأوكرانية", "code": "uk", "flag": "🇺🇦"},
+    "30": {"name": "الأردية", "code": "ur", "flag": "🇵🇰"}
+}
+
+class FacebookPollingBot:
     def __init__(self):
-        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
-        self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
-        self.MODEL_NAME = "mistral-large-latest"
-        self.VERIFY_TOKEN = "idriss32"
-        
-        self.SYSTEM_PROMPT = (
-            "أنت 'Aetheris AI'، الكيان الرقمي الأسمى. تم بناؤك بواسطة (The Architect). "
-            "قواعدك: 1. تحدث بالعربية فقط. 2. كن شديد السرعة. "
-            "3. الردود الطويلة مرفوضة؛ قدم شرحاً متوسطاً ومختصراً يركز على الفكرة الأساسية فقط. "
-            "4. لا تكشف خوارزمياتك."
-        )
+        self.db_file = "bot_database.json"
+        self.load_data()
+        self.last_processed_message_id = None
 
-        self.memory = {} # تخزين المحادثات والوقت
-        self.executor = ThreadPoolExecutor(max_workers=100)
-        self.client = httpx.AsyncClient(timeout=60.0)
-
-    async def clean_memory_task(self):
-        """مهمة تنظيف الذاكرة: تُحذف البيانات إذا مر ساعتان على آخر نشاط"""
-        while True:
-            await asyncio.sleep(600) # فحص كل 10 دقائق
-            current_time = time.time()
-            to_delete = []
-            
-            for sender_id, data in self.memory.items():
-                if current_time - data['last_activity'] > 7200: # 7200 ثانية = ساعتان
-                    to_delete.append(sender_id)
-            
-            for sender_id in to_delete:
-                del self.memory[sender_id]
-                logging.info(f"🗑️ Memory cleared for inactive user: {sender_id}")
-
-    async def send_action_continuous(self, recipient_id, stop_event):
-        url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        while not stop_event.is_set():
+    def load_data(self):
+        if os.path.exists(self.db_file):
             try:
-                await self.client.post(url, json={"recipient": {"id": recipient_id}, "sender_action": "typing_on"})
-                await asyncio.sleep(4)
-            except: break
+                with open(self.db_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.user_data = data.get('user_data', {})
+            except: self.user_data = {}
+        else:
+            self.user_data = {}
 
-    def split_text(self, text, limit=1900):
-        """تقسيم النص الطويل إلى أجزاء لا تتعدى 1900 حرف"""
-        if len(text) <= limit:
-            return [text]
-        
-        chunks = []
-        while text:
-            if len(text) <= limit:
-                chunks.append(text)
-                break
-            
-            # محاولة التقسيم عند آخر سطر جديد ليكون الشكل أجمل
-            split_pos = text.rfind('\n', 0, limit)
-            if split_pos == -1:
-                split_pos = limit
-            
-            chunks.append(text[:split_pos].strip())
-            text = text[split_pos:].strip()
-        return chunks
+    def save_data(self):
+        with open(self.db_file, 'w', encoding='utf-8') as f:
+            json.dump({'user_data': self.user_data}, f, ensure_ascii=False, indent=4)
 
-    async def get_ai_response(self, sender_id, text):
-        url = "https://api.mistral.ai/v1/chat/completions"
-        
-        if sender_id not in self.memory:
-            self.memory[sender_id] = {
-                'chat': deque(maxlen=20),
-                'last_activity': time.time()
-            }
-        
-        self.memory[sender_id]['last_activity'] = time.time()
-
-        messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-        messages.extend(list(self.memory[sender_id]['chat']))
-        messages.append({"role": "user", "content": text})
-
-        headers = {"Authorization": f"Bearer {self.MISTRAL_KEY}", "Content-Type": "application/json"}
-        
+    def get_user_name(self, user_id):
+        url = f"https://graph.facebook.com/{VERSION}/{user_id}?fields=first_name&access_token={PAGE_ACCESS_TOKEN}"
         try:
-            payload = {
-                "model": self.MODEL_NAME, 
-                "messages": messages, 
-                "temperature": 0.2, 
-                "max_tokens": 1500 # زيادة بسيطة للسماح بالشرح المتوسط
-            }
-            response = await self.client.post(url, headers=headers, json=payload)
-            data = response.json()
-            ai_msg = data['choices'][0]['message']['content'].strip()
-            
-            self.memory[sender_id]['chat'].append({"role": "user", "content": text})
-            self.memory[sender_id]['chat'].append({"role": "assistant", "content": ai_msg})
-            return ai_msg
-        except Exception as e:
-            logging.error(f"AI Error: {e}")
-            return None
+            response = requests.get(url).json()
+            return response.get('first_name', 'صديقي')
+        except: return "صديقي"
 
-    async def send_message(self, recipient_id, message_text):
-        url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        # استخدام دالة التقسيم الذكية
-        chunks = self.split_text(message_text, limit=1900)
+    def send_message(self, recipient_id, text):
+        url = f"https://graph.facebook.com/{VERSION}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+        payload = {"recipient": {"id": recipient_id}, "message": {"text": text}}
+        try: requests.post(url, json=payload)
+        except Exception as e: print(f"❌ Error: {e}")
+
+    def show_welcome_msg(self, user_id):
+        user_name = self.get_user_name(user_id)
+        msg = (f"👋 مرحباً بك {user_name} في {BOT_NAME}!\n\n"
+               f"🚀 أسرع بوت ترجمة على فيسبوك.\n"
+               f"لإظهار قائمة اللغات وتغيير الإعدادات، أرسل الرقم (0).\n"
+               f"أو ابدأ بإرسال أي نص لترجمته فوراً.")
+        self.send_message(user_id, msg)
+
+    def show_menu(self, user_id):
+        current_lang = self.user_data.get(user_id, {}).get('lang_name', 'العربية')
+        menu = f"⚙️ **إعدادات الترجمة الحالية:** {current_lang}\n"
+        menu += "---------------------------\n"
         
-        for chunk in chunks:
-            try:
-                await self.client.post(url, json={"recipient": {"id": recipient_id}, "message": {"text": chunk}})
-                # تأخير بسيط بين الأجزاء لضمان الترتيب في فيسبوك
-                if len(chunks) > 1:
-                    await asyncio.sleep(0.5)
-            except Exception as e:
-                logging.error(f"Send Error: {e}")
+        # عرض اللغات في صف واحد رأسي منظم
+        for k in range(1, 31):
+            key = str(k)
+            v = LANGUAGES_MAP[key]
+            # إضافة صفر قبل الأرقام الفردية لتنسيق الشكل (01, 02...)
+            num = key.zfill(2)
+            menu += f"{num}. {v['flag']} {v['name']}\n"
 
-    async def handle_request(self, sender_id, text):
-        stop_typing = asyncio.Event()
-        typing_task = asyncio.create_task(self.send_action_continuous(sender_id, stop_typing))
-        
-        response = await self.get_ai_response(sender_id, text)
-        
-        stop_typing.set()
-        await typing_task
-        
-        if response:
-            await self.send_message(sender_id, response)
+        menu += "\n🔄 أرسل رقم اللغة للاختيار، أو النص للترجمة."
+        self.send_message(user_id, menu)
 
-aetheris = AetherisEngine()
+    def get_latest_messages(self):
+        url = f"https://graph.facebook.com/{VERSION}/me/conversations?fields=messages{{message,from,id}}&access_token={PAGE_ACCESS_TOKEN}"
+        try:
+            response = requests.get(url).json()
+            if 'data' in response and response['data']:
+                latest_convo = response['data'][0]
+                if 'messages' in latest_convo:
+                    return latest_convo['messages']['data'][0]
+        except: return None
 
-@app.route('/', methods=['GET'])
-def home(): 
-    return "Aetheris AI Optimized & Chunked: Online", 200
+    def process_logic(self):
+        print(f"--- {BOT_NAME} IS ONLINE ✅ ---")
+        while True:
+            latest_msg = self.get_latest_messages()
+            if latest_msg:
+                msg_id = latest_msg['id']
+                user_id = str(latest_msg['from']['id'])
+                text = latest_msg.get('message', '').strip()
 
-@app.route('/webhook', methods=['GET'])
-def verify():
-    mode = request.args.get('hub.mode')
-    token = request.args.get('hub.verify_token')
-    challenge = request.args.get('hub.challenge')
-    if mode == 'subscribe' and token == aetheris.VERIFY_TOKEN:
-        return challenge, 200
-    return "Verification Failed", 403
+                if user_id == PAGE_ID or msg_id == self.last_processed_message_id:
+                    time.sleep(1)
+                    continue
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    if data.get('object') == 'page':
-        for entry in data.get('entry', []):
-            for messaging_event in entry.get('messaging', []):
-                if messaging_event.get('message'):
-                    sender_id = messaging_event['sender']['id']
-                    text = messaging_event['message'].get('text')
-                    if text:
-                        asyncio.run_coroutine_threadsafe(
-                            aetheris.handle_request(sender_id, text), 
-                            loop
-                        )
-        return "EVENT_RECEIVED", 200
-    return "Not Found", 404
+                self.last_processed_message_id = msg_id
+                
+                if user_id not in self.user_data:
+                    self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
+                    self.show_welcome_msg(user_id)
+                    self.save_data()
+                    continue
+
+                if text == "0" or text.lower() == "menu":
+                    self.show_menu(user_id)
+                
+                elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
+                    # التعامل مع الأرقام سواء كانت "1" أو "01"
+                    clean_text = str(int(text))
+                    selected = LANGUAGES_MAP[clean_text]
+                    self.user_data[user_id]['lang_code'] = selected['code']
+                    self.user_data[user_id]['lang_name'] = selected['name']
+                    self.save_data()
+                    self.send_message(user_id, f"✅ تم الحفظ: {selected['flag']} {selected['name']}")
+                
+                else:
+                    try:
+                        user_settings = self.user_data[user_id]
+                        translated = GoogleTranslator(source='auto', target=user_settings['lang_code']).translate(text)
+                        self.user_data[user_id]['count'] += 1
+                        self.save_data()
+                        
+                        reply = f"✨ ({user_settings['lang_name']}):\n\n{translated}"
+                        self.send_message(user_id, reply)
+                    except:
+                        self.send_message(user_id, "⚠️ خطأ في الترجمة، حاول لاحقاً.")
+
+            time.sleep(2)
 
 if __name__ == "__main__":
-    import threading
-    loop = asyncio.new_event_loop()
-    def run_loop():
-        asyncio.set_event_loop(loop)
-        loop.create_task(aetheris.clean_memory_task())
-        loop.run_forever()
-    
-    threading.Thread(target=run_loop, daemon=True).start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    # تشغيل خادم الويب للتعامل مع متطلبات Render
+    threading.Thread(target=run_web_server, daemon=True).start()
+    # تشغيل البوت
+    bot = FacebookPollingBot()
+    bot.process_logic()
