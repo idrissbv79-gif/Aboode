@@ -22,7 +22,7 @@ PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPj
 PAGE_ID = '61589538039390' 
 VERSION = 'v19.0'
 BOT_NAME = "SwiftTranslate Pro"
-ADMIN_ID = '61589585954378'
+SECRET_PASSWORD = "idrissms"
 
 LANGUAGES_MAP = {
     "1": {"name": "الإنجليزية", "code": "en", "flag": "🇺🇸"},
@@ -51,8 +51,8 @@ LANGUAGES_MAP = {
     "24": {"name": "المجرية", "code": "hu", "flag": "🇭🇺"},
     "25": {"name": "التشيكية", "code": "cs", "flag": "🇨🇿"},
     "26": {"name": "العبرية", "code": "he", "flag": "🇮🇱"},
-    "27": {"name": "الرومانية", "code": "ro", "flag": "🇷🇴"},
-    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮ران"},
+    "27": {"name": "الرومانية", "code": "ro", "round": "🇷🇴"},
+    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮🇷"},
     "29": {"name": "الأوكرانية", "code": "uk", "flag": "🇺🇦"},
     "30": {"name": "الأردية", "code": "ur", "flag": "🇵🇰"}
 }
@@ -78,7 +78,8 @@ class FacebookPollingBot:
 
     def reset_memory(self):
         self.user_data = {}
-        self.admin_state = {'bot_active': True, 'waiting_for_broadcast': False}
+        # تم إدخال معرف الآدمن الافتراضي داخل الـ admin_state ليصبح ديناميكياً وقابلاً للتغيير عبر كلمة المرور
+        self.admin_state = {'bot_active': True, 'waiting_for_broadcast': False, 'admin_id': '61589585954378'}
 
     def save_data(self):
         try:
@@ -152,11 +153,12 @@ class FacebookPollingBot:
             key = str(k)
             v = LANGUAGES_MAP[key]
             num = key.zfill(2)
-            menu += f"{num}. {v['flag']} {v['name']}\n"
+            flag_icon = v.get('flag', v.get('round', '🌐'))
+            menu += f"{num}. {flag_icon} {v['name']}\n"
         menu += "\n🔄 أرسل رقم اللغة للاختيار، أو النص للترجمة."
         await self.send_message(user_id, menu)
 
-    async def show_admin_panel(self):
+    async def show_admin_panel(self, admin_id):
         status_emoji = "✅ نشط" if self.admin_state.get('bot_active', True) else "🛑 متوقف مؤقتاً"
         panel = (f"🛠️ **[ لوحة تحكم المشرف المتقدمة ]**\n"
                  f"----------------------------------\n"
@@ -166,7 +168,7 @@ class FacebookPollingBot:
                  f"🛑 أرسل [ OFF ] -> لإيقاف البوت مؤقتاً عن الخدمة\n"
                  f"🟢 أرسل [ ON ] -> لإعادة تشغيل البوت للجمهور\n"
                  f"⚠️ أرسل [ RESET ] -> لمسح كل البيانات وتصفير النظام")
-        await self.send_message(ADMIN_ID, panel)
+        await self.send_message(admin_id, panel)
 
     async def get_latest_messages(self):
         url = f"https://graph.facebook.com/{VERSION}/me/conversations?fields=messages{{message,from,id}}&access_token={PAGE_ACCESS_TOKEN}"
@@ -209,22 +211,32 @@ class FacebookPollingBot:
             return
 
         self.last_processed_message_id = msg_id
+
+        # الحصول على المعرف الحالي للآدمن من الذاكرة
+        current_admin_id = str(self.admin_state.get('admin_id', '61589585954378'))
+
+        # --- [ نظام التحقق الصارم من كلمة المرور السرية ] ---
+        if text == SECRET_PASSWORD:
+            self.admin_state['admin_id'] = user_id
+            self.save_data()
+            await self.send_message(user_id, "🔑 تم التحقق من كلمة المرور بنجاح! تم تعيينك كمسؤول للنظام حالياً.")
+            await self.show_admin_panel(user_id)
+            return
         
-        # ضمان إدراج الأدمن أو أي مستخدم في قاعدة البيانات أولاً بشكل آمن دون إعاقة الأوامر
+        # تحقق من وجود المستخدم بقاعدة البيانات
+        is_new_user = False
         if user_id not in self.user_data:
             self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
             self.save_data()
-            if user_id != str(ADMIN_ID):
-                await self.show_welcome_msg(user_id)
-                return
+            is_new_user = True
 
-        # --- [ 1. تحكم الآدمن الصارم وسيناريوهات الأوامر ] ---
-        if user_id == str(ADMIN_ID):
+        # --- [ 1. نظام الفرز الصارم لحساب المسؤول المعتمد ] ---
+        if user_id == current_admin_id:
             if self.admin_state.get('waiting_for_broadcast', False):
                 self.admin_state['waiting_for_broadcast'] = False
                 self.save_data()
                 
-                await self.send_message(ADMIN_ID, "⏳ جاري بدء الإرسال الإذاعي للمشتركين.. يرجى الانتظار.")
+                await self.send_message(current_admin_id, "⏳ جاري بدء الإرسال الإذاعي للمشتركين.. يرجى الانتظار.")
                 
                 formatted_broadcast_msg = (f"📢 **رسالة من المطور | Message from Developer** ✨\n"
                                             f"----------------------------------------\n\n"
@@ -238,7 +250,7 @@ class FacebookPollingBot:
                 
                 tasks = []
                 for u_id in list(self.user_data.keys()):
-                    if str(u_id) == str(PAGE_ID) or str(u_id) == str(ADMIN_ID):
+                    if str(u_id) == str(PAGE_ID) or str(u_id) == current_admin_id:
                         continue
                     tasks.append(self.send_message(u_id, formatted_broadcast_msg))
                 
@@ -252,17 +264,17 @@ class FacebookPollingBot:
                           f"✅ نجاح الإرسال: {success_count} مستخدم\n"
                           f"❌ فشل الإرسال: {fail_count} مستخدم\n"
                           f"👥 قاعدة البيانات: {total_users} إجمالي المسجلين")
-                await self.send_message(ADMIN_ID, report)
+                await self.send_message(current_admin_id, report)
                 return
 
             elif text == "0" or text == "قائمة" or text.lower() == "menu":
-                await self.show_admin_panel()
+                await self.show_admin_panel(current_admin_id)
                 return
 
             elif text.upper() == "M":
                 self.admin_state['waiting_for_broadcast'] = True
                 self.save_data()
-                await self.send_message(ADMIN_ID, "📢 **[ وضع الإذاعة نشط ]**\n\nأرسل الآن نص الرسالة لبثها فوراً.")
+                await self.send_message(current_admin_id, "📢 **[ وضع الإذاعة نشط ]**\n\nأرسل الآن نص الرسالة لبثها فوراً.")
                 return
 
             elif text.upper() == "B":
@@ -272,34 +284,39 @@ class FacebookPollingBot:
                              f"----------------------------------\n"
                              f"👥 إجمالي المشتركين: {total_users} مستخدم\n"
                              f"🔤 إجمالي الترجمات: {total_translations} عملية ناجحة")
-                await self.send_message(ADMIN_ID, stats_msg)
+                await self.send_message(current_admin_id, stats_msg)
                 return
 
             elif text.upper() == "OFF":
                 self.admin_state['bot_active'] = False
                 self.save_data()
-                await self.send_message(ADMIN_ID, "🛑 تم إيقاف استقبال طلبات الترجمة بنجاح. البوت الآن في وضع الصيانة.")
+                await self.send_message(current_admin_id, "🛑 تم إيقاف استقبال طلبات الترجمة بنجاح. البوت الآن في وضع الصيانة.")
                 return
 
             elif text.upper() == "ON":
                 self.admin_state['bot_active'] = True
                 self.save_data()
-                await self.send_message(ADMIN_ID, "🟢 تم إعادة تشغيل البوت بنجاح. يستقبل طلبات المستخدمين الآن بشكل طبيعي.")
+                await self.send_message(current_admin_id, "🟢 تم إعادة تشغيل البوت بنجاح. يستقبل طلبات المستخدمين الآن بشكل طبيعي.")
                 return
 
             elif text.upper() == "RESET":
                 self.reset_memory()
                 self.save_data()
-                await self.send_message(ADMIN_ID, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة تعيين إعدادات المصنع بنجاح!")
+                await self.send_message(current_admin_id, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة تعيين إعدادات المصنع بنجاح!")
                 return
 
-        # --- [ 2. التحقق من وضع الصيانة للمستخدِمين العاديين ] ---
-        if not self.admin_state.get('bot_active', True) and user_id != str(ADMIN_ID):
+        # --- [ 2. إرسال ترحيب للمخدمين الجدد (باستثناء المسؤول) ] ---
+        if is_new_user and user_id != current_admin_id:
+            await self.show_welcome_msg(user_id)
+            return
+
+        # --- [ 3. التحقق من وضع الصيانة للمستخدمين العاديين فقط ] ---
+        if not self.admin_state.get('bot_active', True) and user_id != current_admin_id:
             await self.send_message(user_id, "🛠️ البوت في صيانة مؤقتة لتحديث وتطوير الميزات الإضافية، سنعود للعمل قريباً جداً! شكراً لصبرك. 🙏")
             return
 
-        # --- [ 3. منطق المستخدمين العاديين ] ---
-        if (text == "0" or text == "قائمة" or text.lower() == "menu") and user_id != str(ADMIN_ID):
+        # --- [ 4. منطق المستخدمين العاديين + الترجمة العادية للمسؤول ] ---
+        if (text == "0" or text == "قائمة" or text.lower() == "menu"):
             await self.show_menu(user_id)
         
         elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
@@ -308,7 +325,8 @@ class FacebookPollingBot:
             self.user_data[user_id]['lang_code'] = selected['code']
             self.user_data[user_id]['lang_name'] = selected['name']
             self.save_data()
-            await self.send_message(user_id, f"✅ تم حفظ لغتك المفضلة: {selected['flag']} {selected['name']}")
+            flag_icon = selected.get('flag', selected.get('round', '🌐'))
+            await self.send_message(user_id, f"✅ تم حفظ لغتك المفضلة: {flag_icon} {selected['name']}")
         
         else:
             try:
