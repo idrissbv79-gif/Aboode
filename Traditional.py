@@ -51,7 +51,7 @@ LANGUAGES_MAP = {
     "24": {"name": "المجرية", "code": "hu", "flag": "🇭🇺"},
     "25": {"name": "التشيكية", "code": "cs", "flag": "🇨🇿"},
     "26": {"name": "العبرية", "code": "he", "flag": "🇮🇱"},
-    "27": {"name": "الرومانية", "code": "ro", "round": "🇷🇴"},
+    "27": {"name": "الرومانية", "code": "ro", "flag": "🇷🇴"},
     "28": {"name": "الفارسية", "code": "fa", "flag": "🇮🇷"},
     "29": {"name": "الأوكرانية", "code": "uk", "flag": "🇺🇦"},
     "30": {"name": "الأردية", "code": "ur", "flag": "🇵🇰"}
@@ -61,7 +61,8 @@ class FacebookPollingBot:
     def __init__(self):
         self.db_file = "bot_database.json"
         self.load_data()
-        self.last_processed_message_id = None
+        # تم التعديل إلى قاموس لتفادي تداخل الرسائل بين المستخدمين والتعليق
+        self.processed_messages = {} 
         self.client = httpx.AsyncClient(timeout=15.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100))
 
     def load_data(self):
@@ -78,7 +79,6 @@ class FacebookPollingBot:
 
     def reset_memory(self):
         self.user_data = {}
-        # تم إدخال معرف الآدمن الافتراضي داخل الـ admin_state ليصبح ديناميكياً وقابلاً للتغيير عبر كلمة المرور
         self.admin_state = {'bot_active': True, 'waiting_for_broadcast': False, 'admin_id': '61589585954378'}
 
     def save_data(self):
@@ -140,34 +140,35 @@ class FacebookPollingBot:
     async def show_welcome_msg(self, user_id):
         user_name = await self.get_user_name(user_id)
         msg = (f"👋 مرحباً بك {user_name} في {BOT_NAME}!\n\n"
-               f"🚀 أسرع بوت ترجمة للنصوص القصيرة والطويلة على فيسبوك.\n"
-               f"لإظهار قائمة اللغات والتحكم في الإعدادات، أرسل كلمة (قائمة) أو الرقم (0).\n"
-               f"أو ابدأ بإرسال أي نص لترجمته فوراً.")
+               f"🚀 أسرع وأقوى بوت لترجمة النصوص الطويلة والقصيرة مباشرة داخل فيسبوك ميسنجر.\n\n"
+               f"⚙️ للتحكم في إعدادات اللغة واختيار لغتك المستهدفة، أرسل كلمة (قائمة) أو الرقم (0).\n\n"
+               f"📝 ابدأ الآن بإرسال أي نص، وسيتم ترجمته فوراً للغتك المحددة!")
         await self.send_message(user_id, msg)
 
     async def show_menu(self, user_id):
         current_lang = self.user_data.get(str(user_id), {}).get('lang_name', 'العربية')
-        menu = f"⚙️ **إعدادات الترجمة الحالية:** {current_lang}\n"
-        menu += "---------------------------\n"
+        menu = f"⚙️ [ إعدادات الترجمة الحالية ]\n"
+        menu += f"🌐 اللغة المستهدفة الحالية: {current_lang}\n"
+        menu += "----------------------------------------\n\n"
         for k in range(1, 31):
             key = str(k)
             v = LANGUAGES_MAP[key]
             num = key.zfill(2)
             flag_icon = v.get('flag', v.get('round', '🌐'))
-            menu += f"{num}. {flag_icon} {v['name']}\n"
-        menu += "\n🔄 أرسل رقم اللغة للاختيار، أو النص للترجمة."
+            menu += f" [{num}] {flag_icon} {v['name']}\n"
+        menu += "\n🔄 لتغيير اللغة: أرسل رقمها فقط (مثال: 1).\n📝 للترجمة: أرسل النص مباشرة دون أرقام."
         await self.send_message(user_id, menu)
 
     async def show_admin_panel(self, admin_id):
-        status_emoji = "✅ نشط" if self.admin_state.get('bot_active', True) else "🛑 متوقف مؤقتاً"
-        panel = (f"🛠️ **[ لوحة تحكم المشرف المتقدمة ]**\n"
-                 f"----------------------------------\n"
+        status_emoji = "🟢 نشط ويعمل" if self.admin_state.get('bot_active', True) else "🛑 متوقف (وضع الصيانة)"
+        panel = (f"🛠️ [ لوحة تحكم المشرف المتقدمة ]\n"
+                 f"----------------------------------------\n"
                  f"🤖 حالة البوت الحالية: {status_emoji}\n\n"
-                 f"📢 أرسل [ M ] -> لتفعيل بث الإذاعة الجماعية\n"
-                 f"📊 أرسل [ B ] -> لعرض الإحصائيات الحالية\n"
-                 f"🛑 أرسل [ OFF ] -> لإيقاف البوت مؤقتاً عن الخدمة\n"
-                 f"🟢 أرسل [ ON ] -> لإعادة تشغيل البوت للجمهور\n"
-                 f"⚠️ أرسل [ RESET ] -> لمسح كل البيانات وتصفير النظام")
+                 f"📢 أرسل [ M ] 👈 لتفعيل البث الجماعي (الإذاعة)\n"
+                 f"📊 أرسل [ B ] 👈 لعرض إحصائيات المستخدمين والترجمات\n"
+                 f"🛑 أرسل [ OFF ] 👈 لإيقاف البوت مؤقتاً ودخول وضع الصيانة\n"
+                 f"🟢 أرسل [ ON ] 👈 لإعادة تفعيل البوت واستقبال طلبات المستخدمين\n"
+                 f"⚠️ أرسل [ RESET ] 👈 لمسح قاعدة البيانات وتصفير النظام نهائياً")
         await self.send_message(admin_id, panel)
 
     async def get_latest_messages(self):
@@ -206,39 +207,35 @@ class FacebookPollingBot:
         msg_id = latest_msg['id']
         user_id = str(latest_msg['from']['id'])
         text = latest_msg.get('message', '').strip()
+        text_upper = text.upper()
 
-        if msg_id == self.last_processed_message_id:
+        # فحص التكرار بناءً على معرف المستخدم لتفادي التعليق اللانهائي
+        if self.processed_messages.get(user_id) == msg_id:
             return
 
-        self.last_processed_message_id = msg_id
+        self.processed_messages[user_id] = msg_id
 
-        # الحصول على المعرف الحالي للآدمن من الذاكرة
+        # الحصول على المعرف الحالي للآدمن
         current_admin_id = str(self.admin_state.get('admin_id', '61589585954378'))
 
-        # --- [ نظام التحقق الصارم من كلمة المرور السرية ] ---
+        # --- [ 1. نظام التحقق الصارم من كلمة المرور السرية ] ---
         if text == SECRET_PASSWORD:
             self.admin_state['admin_id'] = user_id
             self.save_data()
-            await self.send_message(user_id, "🔑 تم التحقق من كلمة المرور بنجاح! تم تعيينك كمسؤول للنظام حالياً.")
+            await self.send_message(user_id, "🔑 تم التحقق من الهوية بنجاح! تم تعيينك كالمسؤول الأساسي للنظام.")
             await self.show_admin_panel(user_id)
             return
-        
-        # تحقق من وجود المستخدم بقاعدة البيانات
-        is_new_user = False
-        if user_id not in self.user_data:
-            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
-            self.save_data()
-            is_new_user = True
 
-        # --- [ 1. نظام الفرز الصارم لحساب المسؤول المعتمد ] ---
+        # --- [ 2. فحص وعزل أوامر المسؤول المعتمد ] ---
         if user_id == current_admin_id:
+            # حالة انتظار نص البث الجماعي
             if self.admin_state.get('waiting_for_broadcast', False):
                 self.admin_state['waiting_for_broadcast'] = False
                 self.save_data()
                 
-                await self.send_message(current_admin_id, "⏳ جاري بدء الإرسال الإذاعي للمشتركين.. يرجى الانتظار.")
+                await self.send_message(current_admin_id, "⏳ جاري بدء الإرسال الجماعي لجميع المشتركين.. يرجى الانتظار.")
                 
-                formatted_broadcast_msg = (f"📢 **رسالة من المطور | Message from Developer** ✨\n"
+                formatted_broadcast_msg = (f"📢 [ رسالة جماعية من إدارة البوت ] ✨\n"
                                             f"----------------------------------------\n\n"
                                             f"{text}\n\n"
                                             f"----------------------------------------\n"
@@ -256,69 +253,85 @@ class FacebookPollingBot:
                 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for r in results:
-                    if r is True: success_count += 1
-                    else: fail_count += 1
+                    if r is True: 
+                        success_count += 1
+                    else: 
+                        fail_count += 1
                 
-                report = (f"📋 **[ تقرير انتهاء البث الجماعي ]**\n"
-                          f"----------------------------------\n"
-                          f"✅ نجاح الإرسال: {success_count} مستخدم\n"
-                          f"❌ فشل الإرسال: {fail_count} مستخدم\n"
-                          f"👥 قاعدة البيانات: {total_users} إجمالي المسجلين")
+                report = (f"📋 [ تقرير انتهاء البث الجماعي ]\n"
+                          f"----------------------------------------\n"
+                          f"✅ تم الإرسال بنجاح إلى: {success_count} مستخدم\n"
+                          f"❌ فشل الإرسال إلى: {fail_count} مستخدم\n"
+                          f"👥 إجمالي المسجلين في النظام: {total_users}")
                 await self.send_message(current_admin_id, report)
                 return
 
-            elif text == "0" or text == "قائمة" or text.lower() == "menu":
+            # طلب لوحة التحكم للمسؤول
+            elif text == "0" or text == "قائمة" or text_upper in ["MENU", "PANEL", "CONTROL"]:
                 await self.show_admin_panel(current_admin_id)
                 return
 
-            elif text.upper() == "M":
+            # تفعيل وضع الإذاعة
+            elif text_upper == "M":
                 self.admin_state['waiting_for_broadcast'] = True
                 self.save_data()
-                await self.send_message(current_admin_id, "📢 **[ وضع الإذاعة نشط ]**\n\nأرسل الآن نص الرسالة لبثها فوراً.")
+                await self.send_message(current_admin_id, "📢 [ وضع الإذاعة نشط ]\n\nأرسل الآن نص الرسالة التي تريد بثها للجميع.")
                 return
 
-            elif text.upper() == "B":
+            # الإحصائيات
+            elif text_upper == "B":
                 total_users = len(self.user_data)
                 total_translations = sum(u.get('count', 0) for u in self.user_data.values())
-                stats_msg = (f"📊 **[ إحصائيات الأداء والنظام ]**\n"
-                             f"----------------------------------\n"
-                             f"👥 إجمالي المشتركين: {total_users} مستخدم\n"
-                             f"🔤 إجمالي الترجمات: {total_translations} عملية ناجحة")
+                stats_msg = (f"📊 [ إحصائيات النظام الحالية ]\n"
+                             f"----------------------------------------\n"
+                             f"👥 إجمالي المستخدمين المشتركين: {total_users}\n"
+                             f"🔤 إجمالي عمليات الترجمة الناجحة: {total_translations}")
                 await self.send_message(current_admin_id, stats_msg)
                 return
 
-            elif text.upper() == "OFF":
+            # إيقاف البوت مؤقتاً
+            elif text_upper == "OFF":
                 self.admin_state['bot_active'] = False
                 self.save_data()
-                await self.send_message(current_admin_id, "🛑 تم إيقاف استقبال طلبات الترجمة بنجاح. البوت الآن في وضع الصيانة.")
+                await self.send_message(current_admin_id, "🛑 تم تعطيل البوت وإدخاله في وضع الصيانة بنجاح للجمهور.")
                 return
 
-            elif text.upper() == "ON":
+            # إعادة تشغيل البوت للجمهور
+            elif text_upper == "ON":
                 self.admin_state['bot_active'] = True
                 self.save_data()
-                await self.send_message(current_admin_id, "🟢 تم إعادة تشغيل البوت بنجاح. يستقبل طلبات المستخدمين الآن بشكل طبيعي.")
+                await self.send_message(current_admin_id, "🟢 تم تفعيل البوت بنجاح. يستقبل الآن طلبات المستخدمين بشكل طبيعي.")
                 return
 
-            elif text.upper() == "RESET":
+            # تصفير النظام
+            elif text_upper == "RESET":
                 self.reset_memory()
                 self.save_data()
-                await self.send_message(current_admin_id, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة تعيين إعدادات المصنع بنجاح!")
+                await self.send_message(current_admin_id, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة ضبط المصنع بنجاح!")
                 return
 
-        # --- [ 2. إرسال ترحيب للمخدمين الجدد (باستثناء المسؤول) ] ---
+        # --- [ 3. نظام المستخدمين العاديين والترجمة ] ---
+        is_new_user = False
+        if user_id not in self.user_data:
+            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
+            self.save_data()
+            is_new_user = True
+
+        # إرسال ترحيب للمسجلين الجدد
         if is_new_user and user_id != current_admin_id:
             await self.show_welcome_msg(user_id)
             return
 
-        # --- [ 3. التحقق من وضع الصيانة للمستخدمين العاديين فقط ] ---
+        # التحقق من وضع الصيانة للمستخدمين العاديين
         if not self.admin_state.get('bot_active', True) and user_id != current_admin_id:
-            await self.send_message(user_id, "🛠️ البوت في صيانة مؤقتة لتحديث وتطوير الميزات الإضافية، سنعود للعمل قريباً جداً! شكراً لصبرك. 🙏")
+            await self.send_message(user_id, "🛠️ البوت في وضع صيانة مؤقتة لتحديث الخوادم وإضافة ميزات جديدة. سنعود قريباً جداً، شكراً لتفهمك! 🙏")
             return
 
-        # --- [ 4. منطق المستخدمين العاديين + الترجمة العادية للمسؤول ] ---
-        if (text == "0" or text == "قائمة" or text.lower() == "menu"):
+        # منطق القائمة واختيار اللغات والترجمة العادية
+        if text == "0" or text == "قائمة" or text_upper == "MENU":
             await self.show_menu(user_id)
         
+        # معالجة اختيار اللغة (يقبل الأرقام العادية والمكتوبة بصيغة نصية)
         elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
             clean_text = str(int(text))
             selected = LANGUAGES_MAP[clean_text]
@@ -326,8 +339,9 @@ class FacebookPollingBot:
             self.user_data[user_id]['lang_name'] = selected['name']
             self.save_data()
             flag_icon = selected.get('flag', selected.get('round', '🌐'))
-            await self.send_message(user_id, f"✅ تم حفظ لغتك المفضلة: {flag_icon} {selected['name']}")
+            await self.send_message(user_id, f"✅ تم حفظ تفضيلاتك! لغة الترجمة الحالية هي: {flag_icon} {selected['name']}")
         
+        # ترجمة النص المكتوب مباشرة
         else:
             try:
                 user_settings = self.user_data[user_id]
@@ -338,13 +352,13 @@ class FacebookPollingBot:
                 if translated:
                     self.user_data[user_id]['count'] += 1
                     self.save_data()
-                    reply = f"✨ ({user_settings['lang_name']}):\n\n{translated}"
+                    reply = f"✨ تم الترجمة إلى ({user_settings['lang_name']}):\n\n{translated}"
                     await self.send_message(user_id, reply)
                 else:
-                    await self.send_message(user_id, "⚠️ تعذر ترجمة هذا النص، يرجى التحقق من صياغته وإعادة المحاولة.")
+                    await self.send_message(user_id, "⚠️ عذراً، تعذر ترجمة هذا النص. يرجى التحقق من المحتوى والمحاولة مجدداً.")
             except Exception as e:
                 print(f"❌ Translation Error: {e}")
-                await self.send_message(user_id, "⚠️ عذراً، واجهنا مشكلة مؤقتة في معالجة الترجمة، يرجى المحاولة مرة أخرى.")
+                await self.send_message(user_id, "⚠️ واجهنا خطأ فني مؤقت أثناء معالجة الترجمة، يرجى المحاولة مرة أخرى.")
 
     async def process_logic(self):
         print(f"--- {BOT_NAME} IS ONLINE WITH HTTPX & ASYNCIO ✅ ---")
