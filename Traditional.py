@@ -62,7 +62,6 @@ class FacebookPollingBot:
         self.db_file = "bot_database.json"
         self.load_data()
         self.last_processed_message_id = None
-        # إنشاء عميل httpx غير متزامن مع دعم الـ Connection Pooling لإبقاء الاتصال سريعاً جداً
         self.client = httpx.AsyncClient(timeout=15.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100))
 
     def load_data(self):
@@ -118,7 +117,6 @@ class FacebookPollingBot:
         return chunks
 
     async def send_message(self, recipient_id, text):
-        """إرسال الرسائل بشكل غير متزامن بالكامل باستخدام httpx"""
         url = f"https://graph.facebook.com/{VERSION}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
         text_chunks = self.split_text(text, max_length=1900)
         success = True
@@ -126,13 +124,13 @@ class FacebookPollingBot:
         for chunk in text_chunks:
             if not chunk:
                 continue
-            payload = {"recipient": {"id": recipient_id}, "message": {"text": chunk}}
+            payload = {"recipient": {"id": str(recipient_id)}, "message": {"text": chunk}}
             try: 
                 res = await self.client.post(url, json=payload)
                 if res.status_code != 200:
                     print(f"❌ Facebook API Error: {res.text}")
                     success = False
-                await asyncio.sleep(0.2) # تأخير غير حاصر (Non-blocking) لمنع التداخل
+                await asyncio.sleep(0.2)
             except Exception as e: 
                 print(f"❌ Error sending message chunk: {e}")
                 success = False
@@ -147,7 +145,7 @@ class FacebookPollingBot:
         await self.send_message(user_id, msg)
 
     async def show_menu(self, user_id):
-        current_lang = self.user_data.get(user_id, {}).get('lang_name', 'العربية')
+        current_lang = self.user_data.get(str(user_id), {}).get('lang_name', 'العربية')
         menu = f"⚙️ **إعدادات الترجمة الحالية:** {current_lang}\n"
         menu += "---------------------------\n"
         for k in range(1, 31):
@@ -179,14 +177,13 @@ class FacebookPollingBot:
                 for convo in data['data']:
                     if 'messages' in convo and convo['messages']['data']:
                         latest_msg = convo['messages']['data'][0]
-                        if str(latest_msg['from']['id']) != PAGE_ID:
+                        if str(latest_msg['from']['id']) != str(PAGE_ID):
                             return latest_msg
         except Exception as e:
             print(f"❌ Error fetching messages: {e}")
         return None
 
     async def safe_translate(self, text, target_language):
-        """الترجمة يتم تشغيلها في Thread منفصل لكي لا تعطل معالجة رسائل الملايين الآخرين"""
         def _translate():
             translator = GoogleTranslator(source='auto', target=target_language)
             input_chunks = self.split_text(text, max_length=1500)
@@ -201,11 +198,9 @@ class FacebookPollingBot:
                     return None
             return "\n".join(translated_chunks)
 
-        # تشغيل دالة الترجمة بشكل متوافق مع البيئة غير المتزامنة
         return await asyncio.to_thread(_translate)
 
     async def handle_user_request(self, latest_msg):
-        """دالة مستقلة تماماً لكل مستخدم، تعمل بالتوازي مع بقية المستخدمين"""
         msg_id = latest_msg['id']
         user_id = str(latest_msg['from']['id'])
         text = latest_msg.get('message', '').strip()
@@ -215,14 +210,16 @@ class FacebookPollingBot:
 
         self.last_processed_message_id = msg_id
         
+        # ضمان إدراج الأدمن أو أي مستخدم في قاعدة البيانات أولاً بشكل آمن دون إعاقة الأوامر
         if user_id not in self.user_data:
             self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
-            await self.show_welcome_msg(user_id)
             self.save_data()
-            return
+            if user_id != str(ADMIN_ID):
+                await self.show_welcome_msg(user_id)
+                return
 
         # --- [ 1. تحكم الآدمن الصارم وسيناريوهات الأوامر ] ---
-        if user_id == ADMIN_ID:
+        if user_id == str(ADMIN_ID):
             if self.admin_state.get('waiting_for_broadcast', False):
                 self.admin_state['waiting_for_broadcast'] = False
                 self.save_data()
@@ -239,10 +236,9 @@ class FacebookPollingBot:
                 fail_count = 0
                 total_users = len(self.user_data)
                 
-                # إرسال الإذاعة بشكل سريع لجميع المشتركين بالتوازي
                 tasks = []
                 for u_id in list(self.user_data.keys()):
-                    if u_id == PAGE_ID or u_id == ADMIN_ID:
+                    if str(u_id) == str(PAGE_ID) or str(u_id) == str(ADMIN_ID):
                         continue
                     tasks.append(self.send_message(u_id, formatted_broadcast_msg))
                 
@@ -298,12 +294,12 @@ class FacebookPollingBot:
                 return
 
         # --- [ 2. التحقق من وضع الصيانة للمستخدِمين العاديين ] ---
-        if not self.admin_state.get('bot_active', True) and user_id != ADMIN_ID:
+        if not self.admin_state.get('bot_active', True) and user_id != str(ADMIN_ID):
             await self.send_message(user_id, "🛠️ البوت في صيانة مؤقتة لتحديث وتطوير الميزات الإضافية، سنعود للعمل قريباً جداً! شكراً لصبرك. 🙏")
             return
 
         # --- [ 3. منطق المستخدمين العاديين ] ---
-        if (text == "0" or text == "قائمة" or text.lower() == "menu") and user_id != ADMIN_ID:
+        if (text == "0" or text == "قائمة" or text.lower() == "menu") and user_id != str(ADMIN_ID):
             await self.show_menu(user_id)
         
         elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
@@ -337,10 +333,7 @@ class FacebookPollingBot:
         while True:
             latest_msg = await self.get_latest_messages()
             if latest_msg:
-                # تشغيل معالجة الرسالة كـ Task منفصل فوراً دون انتظار انتهائه (Non-blocking)
                 asyncio.create_task(self.handle_user_request(latest_msg))
-            
-            # فحص الرسائل الجديدة كل 0.5 ثانية بدلاً من ثانيتين لزيادة سرعة الاستجابة تحت الضغط العالي
             await asyncio.sleep(0.5)
 
 def start_bot_main():
@@ -348,7 +341,5 @@ def start_bot_main():
     asyncio.run(bot.process_logic())
 
 if __name__ == "__main__":
-    # تشغيل خادم ويب Flask في خلفية خيطية (Thread) منفصلة لضمان عمل Render
     threading.Thread(target=run_web_server, daemon=True).start()
-    # تشغيل محرك البوت غير المتزامن المطور في الـ Main Thread
     start_bot_main()
