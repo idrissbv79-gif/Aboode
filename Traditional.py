@@ -22,7 +22,7 @@ PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPj
 PAGE_ID = '61589538039390' 
 VERSION = 'v19.0'
 BOT_NAME = "SwiftTranslate Pro"
-SECRET_PASSWORD = "idrissms"
+ADMIN_ID = '61589585954378'  # معرف المسؤول الثابت والمعتمد للنظام
 
 LANGUAGES_MAP = {
     "1": {"name": "الإنجليزية", "code": "en", "flag": "🇺🇸"},
@@ -52,7 +52,7 @@ LANGUAGES_MAP = {
     "25": {"name": "التشيكية", "code": "cs", "flag": "🇨🇿"},
     "26": {"name": "العبرية", "code": "he", "flag": "🇮🇱"},
     "27": {"name": "الرومانية", "code": "ro", "flag": "🇷🇴"},
-    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮🇷"},
+    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮ران"},
     "29": {"name": "الأوكرانية", "code": "uk", "flag": "🇺🇦"},
     "30": {"name": "الأردية", "code": "ur", "flag": "🇵🇰"}
 }
@@ -78,7 +78,7 @@ class FacebookPollingBot:
 
     def reset_memory(self):
         self.user_data = {}
-        self.admin_state = {'bot_active': True, 'waiting_for_broadcast': False, 'admin_id': '61589585954378'}
+        self.admin_state = {'waiting_for_broadcast': False, 'in_control_panel': False}
 
     def save_data(self):
         try:
@@ -159,15 +159,11 @@ class FacebookPollingBot:
         await self.send_message(user_id, menu)
 
     async def show_admin_panel(self, admin_id):
-        status_emoji = "🟢 نشط ويعمل" if self.admin_state.get('bot_active', True) else "🛑 متوقف (وضع الصيانة)"
-        panel = (f"🛠️ [ لوحة تحكم المشرف المتقدمة ]\n"
-                 f"----------------------------------------\n"
-                 f"🤖 حالة البوت الحالية: {status_emoji}\n\n"
-                 f"📢 أرسل [ M ] 👈 لتفعيل البث الجماعي (الإذاعة)\n"
-                 f"📊 أرسل [ B ] 👈 لعرض إحصائيات المستخدمين والترجمات\n"
-                 f"🛑 أرسل [ OFF ] 👈 لإيقاف البوت مؤقتاً ودخول وضع الصيانة\n"
-                 f"🟢 أرسل [ ON ] 👈 لإعادة تفعيل البوت واستقبل طلبات المستخدمين\n"
-                 f"⚠️ أرسل [ RESET ] 👈 لمسح قاعدة البيانات وتصفير النظام نهائياً")
+        panel = (f"🛠️ [ لوحة تحكم المشرف ]\n"
+                 f"----------------------------------------\n\n"
+                 f"📢 أرسل [ M ] 👈 لتفعيل البث الجماعي (الإذاعة) لجميع المستخدمين\n"
+                 f"📊 أرسل [ B ] 👈 لعرض إحصائيات المستخدمين والترجمات المتوفرة\n"
+                 f"🚪 أرسل [ خروج ] 👈 لإغلاق لوحة التحكم والعودة لوضع الترجمة")
         await self.send_message(admin_id, panel)
 
     async def get_latest_messages(self):
@@ -212,30 +208,35 @@ class FacebookPollingBot:
             return
 
         self.processed_messages[user_id] = msg_id
-        current_admin_id = str(self.admin_state.get('admin_id', '61589585954378'))
 
-        # --- [ تسجيل المستخدم تلقائياً فوراً عند تفاعله لضمان وصول الإذاعة له مستقبلاً ] ---
+        # --- [ تسجيل المستخدم تلقائياً فوراً عند تفاعله ] ---
         is_new_user = False
         if user_id not in self.user_data and user_id != str(PAGE_ID):
             self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
             self.save_data()
             is_new_user = True
 
-        # --- [ 1. نظام التحقق الصارم من كلمة المرور السرية ] ---
-        if text == SECRET_PASSWORD:
-            self.admin_state['admin_id'] = user_id
-            self.save_data()
-            await self.send_message(user_id, "🔑 تم التحقق من الهوية بنجاح! تم تعيينك كالمسؤول الأساسي للنظام.")
-            await self.show_admin_panel(user_id)
+        # إرسال رسالة الترحيب للمستخدم الجديد
+        if is_new_user and user_id != ADMIN_ID:
+            await self.show_welcome_msg(user_id)
             return
 
-        # --- [ 2. فحص وعزل أوامر المسؤول المعتمد ] ---
-        if user_id == current_admin_id:
+        # --- [ عزل وفحص أوامر المسؤول المعتمد ] ---
+        if user_id == ADMIN_ID:
+            
+            # 1. حالة انتظار نص الإذاعة والجروب كاست
             if self.admin_state.get('waiting_for_broadcast', False):
+                if text == "خروج":
+                    self.admin_state['waiting_for_broadcast'] = False
+                    self.admin_state['in_control_panel'] = False
+                    self.save_data()
+                    await self.send_message(ADMIN_ID, "🚪 تم إلغاء البث الجماعي والخروج من لوحة التحكم بنجاح.")
+                    return
+                
                 self.admin_state['waiting_for_broadcast'] = False
                 self.save_data()
                 
-                await self.send_message(current_admin_id, "⏳ جاري بدء الإرسال الجماعي لجميع المشتركين الآمن.. يرجى الانتظار.")
+                await self.send_message(ADMIN_ID, "⏳ جاري بدء الإرسال الجماعي الآمن لجميع المشتركين.. يرجى الانتظار.")
                 
                 formatted_broadcast_msg = (f"📢 [ رسالة جماعية من إدارة البوت ] ✨\n"
                                             f"----------------------------------------\n\n"
@@ -247,10 +248,10 @@ class FacebookPollingBot:
                 fail_count = 0
                 total_users = len(self.user_data)
                 
-                # إرسال الرسائل لجميع المسجلين ما عدا معرف الصفحة والمسؤول نفسه لتجنب التكرار والخلل
+                # إرسال الرسائل لجميع المسجلين دون أي استثناء (بما فيهم الأدمن نفسه)
                 for u_id in list(self.user_data.keys()):
                     u_id_str = str(u_id)
-                    if u_id_str == str(PAGE_ID) or u_id_str == current_admin_id:
+                    if u_id_str == str(PAGE_ID):
                         continue
                     
                     res_status = await self.send_message(u_id_str, formatted_broadcast_msg)
@@ -258,67 +259,46 @@ class FacebookPollingBot:
                         success_count += 1
                     else:
                         fail_count += 1
-                    await asyncio.sleep(0.3) # تأخير لمنع الحظر
+                    await asyncio.sleep(0.3)  # تأخير آمن لمنع الحظر والسبام
                 
                 report = (f"📋 [ تقرير انتهاء البث الجماعي ]\n"
                           f"----------------------------------------\n"
                           f"✅ تم الإرسال بنجاح إلى: {success_count} مستخدم\n"
                           f"❌ فشل الإرسال إلى: {fail_count} مستخدم\n"
                           f"👥 إجمالي المسجلين في النظام: {total_users}")
-                await self.send_message(current_admin_id, report)
+                await self.send_message(ADMIN_ID, report)
                 return
 
-            elif text == "0" or text == "قائمة" or text_upper in ["MENU", "PANEL", "CONTROL"]:
-                await self.show_admin_panel(current_admin_id)
-                return
-
-            elif text_upper == "M":
-                self.admin_state['waiting_for_broadcast'] = True
+            # 2. أمر فتح لوحة التحكم للمسؤول (panel أو control)
+            if text_upper in ["PANEL", "CONTROL"] and not self.admin_state.get('in_control_panel', False):
+                self.admin_state['in_control_panel'] = True
                 self.save_data()
-                await self.send_message(current_admin_id, "📢 [ وضع الإذاعة نشط ]\n\nأرسل الآن نص الرسالة التي تريد بثها للجميع.")
+                await self.show_admin_panel(ADMIN_ID)
                 return
 
-            elif text_upper == "B":
-                total_users = len(self.user_data)
-                total_translations = sum(u.get('count', 0) for u in self.user_data.values())
-                stats_msg = (f"📊 [ إحصائيات النظام الحالية ]\n"
-                             f"----------------------------------------\n"
-                             f"👥 إجمالي المستخدمين المشتركين: {total_users}\n"
-                             f"🔤 إجمالي عمليات الترجمة الناجحة: {total_translations}")
-                await self.send_message(current_admin_id, stats_msg)
-                return
+            # 3. معالجة خيارات لوحة التحكم في حال تفعيلها
+            if self.admin_state.get('in_control_panel', False):
+                if text == "خروج":
+                    self.admin_state['in_control_panel'] = False
+                    self.save_data()
+                    await self.send_message(ADMIN_ID, "🚪 تم إغلاق لوحة التحكم، أنت الآن في وضع الترجمة الاعتيادي.")
+                    return
 
-            elif text_upper == "OFF":
-                self.admin_state['bot_active'] = False
-                self.save_data()
-                await self.send_message(current_admin_id, "🛑 تم تعطيل البوت وإدخاله في وضع الصيانة بنجاح للجمهور.")
-                return
+                elif text_upper == "M":
+                    self.admin_state['waiting_for_broadcast'] = True
+                    self.save_data()
+                    await self.send_message(ADMIN_ID, "📢 [ وضع الإذاعة نشط ]\n\nأرسل الآن نص الرسالة التي تريد بثها للجميع، أو أرسل (خروج) للإلغاء.")
+                    return
 
-            elif text_upper == "ON":
-                self.admin_state['bot_active'] = True
-                self.save_data()
-                await self.send_message(current_admin_id, "🟢 تم تفعيل البوت بنجاح. يستقبل الآن طلبات المستخدمين بشكل طبيعي.")
-                return
-
-            elif text_upper == "RESET":
-                self.reset_memory()
-                self.save_data()
-                await self.send_message(current_admin_id, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة ضبط المصنع بنجاح!")
-                return
-
-        # --- [ 3. نظام فحص وضع الصيانة والتشغيل/الإيقاف والترحيب ] ---
-        # إرسال رسالة الترحيب للمستخدم الجديد فقط إذا كان البوت نشطاً وليس الأدمن
-        if is_new_user and user_id != current_admin_id:
-            if not self.admin_state.get('bot_active', True):
-                await self.send_message(user_id, "🛠️ البوت في وضع صيانة مؤقتة لتحديث الخوادم وإضافة ميزات جديدة. سنعود قريباً جداً، شكراً لتفهمك! 🙏")
-            else:
-                await self.show_welcome_msg(user_id)
-            return
-
-        # حظر المستخدمين العاديين بشكل صارم إذا كان البوت مغلقاً (وضع الصيانة)
-        if not self.admin_state.get('bot_active', True) and user_id != current_admin_id:
-            await self.send_message(user_id, "🛠️ البوت في وضع صيانة مؤقتة لتحديث الخوادم وإضافة ميزات جديدة. سنعود قريباً جداً، شكراً لتفهمك! 🙏")
-            return
+                elif text_upper == "B":
+                    total_users = len(self.user_data)
+                    total_translations = sum(u.get('count', 0) for u in self.user_data.values())
+                    stats_msg = (f"📊 [ إحصائيات النظام الحالية ]\n"
+                                 f"----------------------------------------\n"
+                                 f"👥 إجمالي المستخدمين المشتركين: {total_users}\n"
+                                 f"🔤 إجمالي عمليات الترجمة الناجحة: {total_translations}")
+                    await self.send_message(ADMIN_ID, stats_msg)
+                    return
 
         # --- [ 4. نظام المستخدمين العاديين والترجمة ] ---
         if text == "0" or text == "قائمة" or text_upper == "MENU":
