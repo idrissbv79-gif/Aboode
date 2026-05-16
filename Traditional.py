@@ -214,6 +214,13 @@ class FacebookPollingBot:
         self.processed_messages[user_id] = msg_id
         current_admin_id = str(self.admin_state.get('admin_id', '61589585954378'))
 
+        # --- [ تسجيل المستخدم تلقائياً فوراً عند تفاعله لضمان وصول الإذاعة له مستقبلاً ] ---
+        is_new_user = False
+        if user_id not in self.user_data and user_id != str(PAGE_ID):
+            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
+            self.save_data()
+            is_new_user = True
+
         # --- [ 1. نظام التحقق الصارم من كلمة المرور السرية ] ---
         if text == SECRET_PASSWORD:
             self.admin_state['admin_id'] = user_id
@@ -240,7 +247,7 @@ class FacebookPollingBot:
                 fail_count = 0
                 total_users = len(self.user_data)
                 
-                # إرسال الرسائل بتتابع آمن لتجنب حظر الـ API Rate Limit
+                # إرسال الرسائل لجميع المسجلين ما عدا معرف الصفحة والمسؤول نفسه لتجنب التكرار والخلل
                 for u_id in list(self.user_data.keys()):
                     u_id_str = str(u_id)
                     if u_id_str == str(PAGE_ID) or u_id_str == current_admin_id:
@@ -251,7 +258,7 @@ class FacebookPollingBot:
                         success_count += 1
                     else:
                         fail_count += 1
-                    await asyncio.sleep(0.2) # تأخير إضافي آمن بين كل مستخدم ومستخدم
+                    await asyncio.sleep(0.3) # تأخير لمنع الحظر
                 
                 report = (f"📋 [ تقرير انتهاء البث الجماعي ]\n"
                           f"----------------------------------------\n"
@@ -299,21 +306,21 @@ class FacebookPollingBot:
                 await self.send_message(current_admin_id, "⚠️ تم مسح قاعدة البيانات بالكامل وإعادة ضبط المصنع بنجاح!")
                 return
 
-        # --- [ 3. نظام المستخدمين العاديين والترجمة ] ---
-        is_new_user = False
-        if user_id not in self.user_data:
-            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
-            self.save_data()
-            is_new_user = True
-
+        # --- [ 3. نظام فحص وضع الصيانة والتشغيل/الإيقاف والترحيب ] ---
+        # إرسال رسالة الترحيب للمستخدم الجديد فقط إذا كان البوت نشطاً وليس الأدمن
         if is_new_user and user_id != current_admin_id:
-            await self.show_welcome_msg(user_id)
+            if not self.admin_state.get('bot_active', True):
+                await self.send_message(user_id, "🛠️ البوت في وضع صيانة مؤقتة لتحديث الخوادم وإضافة ميزات جديدة. سنعود قريباً جداً، شكراً لتفهمك! 🙏")
+            else:
+                await self.show_welcome_msg(user_id)
             return
 
+        # حظر المستخدمين العاديين بشكل صارم إذا كان البوت مغلقاً (وضع الصيانة)
         if not self.admin_state.get('bot_active', True) and user_id != current_admin_id:
             await self.send_message(user_id, "🛠️ البوت في وضع صيانة مؤقتة لتحديث الخوادم وإضافة ميزات جديدة. سنعود قريباً جداً، شكراً لتفهمك! 🙏")
             return
 
+        # --- [ 4. نظام المستخدمين العاديين والترجمة ] ---
         if text == "0" or text == "قائمة" or text_upper == "MENU":
             await self.show_menu(user_id)
         
