@@ -1,6 +1,7 @@
-httpx
 flask
+httpx
 deep-translator
+langdetect
 
 
 
