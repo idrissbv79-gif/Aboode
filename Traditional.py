@@ -3,317 +3,440 @@ from flask import Flask
 from deep_translator import GoogleTranslator
 from langdetect import detect
 
+# ─── Flask (keep-alive) ──────────────────────────────────────────────────────
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "SwiftTranslate Pro v2 is Running! ✅"
+def home():
+    return "SwiftTranslate Pro v2 is Running! ✅"
 
 def run_web_server():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, use_reloader=False)
 
+# ─── إعدادات ─────────────────────────────────────────────────────────────────
 PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPjfmsLDqZC6IFHjOyiDuyxvkMxpOzWcPYpLzq8vJOt2ZBquqcEPTGggmsnYwnEqHkotjTJlrh8pk19cbAVaj5ZAhIYWBdwjk0UI5b9ICOoAs7CD2zfezlPsZB7alH1ez9YMDXX6ZBaGjXrU3QZDZD'
 PAGE_ID    = '61589538039390'
 VERSION    = 'v19.0'
 BOT_NAME   = "SwiftTranslate Pro"
 ADMIN_PASS = "idriss78"
+DB_FILE    = "bot_database.json"
 
-LANGUAGES_MAP = {
-    "1":{"name":"الإنجليزية","code":"en","flag":"🇺🇸"},   "2":{"name":"الفرنسية","code":"fr","flag":"🇫🇷"},
-    "3":{"name":"الألمانية","code":"de","flag":"🇩🇪"},    "4":{"name":"الإسبانية","code":"es","flag":"🇪🇸"},
-    "5":{"name":"التركية","code":"tr","flag":"🇹🇷"},      "6":{"name":"الإيطالية","code":"it","flag":"🇮🇹"},
-    "7":{"name":"الروسية","code":"ru","flag":"🇷🇺"},      "8":{"name":"الصينية","code":"zh-CN","flag":"🇨🇳"},
-    "9":{"name":"اليابانية","code":"ja","flag":"🇯🇵"},   "10":{"name":"الكورية","code":"ko","flag":"🇰🇷"},
-    "11":{"name":"البرتغالية","code":"pt","flag":"🇵🇹"}, "12":{"name":"الهندية","code":"hi","flag":"🇮🇳"},
-    "13":{"name":"الإندونيسية","code":"id","flag":"🇮🇩"},"14":{"name":"الهولندية","code":"nl","flag":"🇳🇱"},
-    "15":{"name":"السويدية","code":"sv","flag":"🇸🇪"},   "16":{"name":"البولندية","code":"pl","flag":"🇵🇱"},
-    "17":{"name":"اليونانية","code":"el","flag":"🇬🇷"},  "18":{"name":"التايلاندية","code":"th","flag":"🇹🇭"},
-    "19":{"name":"الفيتنامية","code":"vi","flag":"🇻🇳"}, "20":{"name":"العربية","code":"ar","flag":"🇩🇿"},
-    "21":{"name":"النرويجية","code":"no","flag":"🇳🇴"},  "22":{"name":"الدنماركية","code":"da","flag":"🇩🇰"},
-    "23":{"name":"الفنلندية","code":"fi","flag":"🇫🇮"},  "24":{"name":"المجرية","code":"hu","flag":"🇭🇺"},
-    "25":{"name":"التشيكية","code":"cs","flag":"🇨🇿"},   "26":{"name":"العبرية","code":"he","flag":"🇮🇱"},
-    "27":{"name":"الرومانية","code":"ro","flag":"🇷🇴"},  "28":{"name":"الفارسية","code":"fa","flag":"🇮🇷"},
-    "29":{"name":"الأوكرانية","code":"uk","flag":"🇺🇦"}, "30":{"name":"الأردية","code":"ur","flag":"🇵🇰"},
+LANG = {
+    "1":("الإنجليزية","en","🇺🇸"),   "2":("الفرنسية","fr","🇫🇷"),
+    "3":("الألمانية","de","🇩🇪"),    "4":("الإسبانية","es","🇪🇸"),
+    "5":("التركية","tr","🇹🇷"),      "6":("الإيطالية","it","🇮🇹"),
+    "7":("الروسية","ru","🇷🇺"),      "8":("الصينية","zh-CN","🇨🇳"),
+    "9":("اليابانية","ja","🇯🇵"),    "10":("الكورية","ko","🇰🇷"),
+    "11":("البرتغالية","pt","🇵🇹"),  "12":("الهندية","hi","🇮🇳"),
+    "13":("الإندونيسية","id","🇮🇩"), "14":("الهولندية","nl","🇳🇱"),
+    "15":("السويدية","sv","🇸🇪"),    "16":("البولندية","pl","🇵🇱"),
+    "17":("اليونانية","el","🇬🇷"),   "18":("التايلاندية","th","🇹🇭"),
+    "19":("الفيتنامية","vi","🇻🇳"),  "20":("العربية","ar","🇩🇿"),
+    "21":("النرويجية","no","🇳🇴"),   "22":("الدنماركية","da","🇩🇰"),
+    "23":("الفنلندية","fi","🇫🇮"),   "24":("المجرية","hu","🇭🇺"),
+    "25":("التشيكية","cs","🇨🇿"),    "26":("العبرية","he","🇮🇱"),
+    "27":("الرومانية","ro","🇷🇴"),   "28":("الفارسية","fa","🇮🇷"),
+    "29":("الأوكرانية","uk","🇺🇦"),  "30":("الأردية","ur","🇵🇰"),
 }
 
-_LANG_MENU_BODY = "".join(
-    f" [{str(k).zfill(2)}] {LANGUAGES_MAP[str(k)]['flag']} {LANGUAGES_MAP[str(k)]['name']}\n"
-    for k in range(1, 31)
+LANG_MENU_BODY = "".join(
+    f" [{k.zfill(2)}] {LANG[k][2]} {LANG[k][0]}\n" for k in [str(i) for i in range(1, 31)]
 )
 
-class SwiftTranslateBot:
-    DB_FILE = "bot_database.json"
-    S_PANEL = "panel"; S_BROADCAST = "broadcast"; S_TRANSLATE = "translate"
+NEW_USER = lambda: {
+    'lang_code': 'ar', 'lang_name': 'العربية',
+    'src_lang_code': 'auto', 'src_lang_name': 'تلقائي', 'count': 0
+}
+
+# ─── قاعدة البيانات ───────────────────────────────────────────────────────────
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+            return d.get('users', {}), d.get('admins', {})
+        except Exception:
+            pass
+    return {}, {}
+
+def save_db(users, admins):
+    try:
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'users': users, 'admins': admins}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"❌ DB: {e}")
+
+# ─── البوت ───────────────────────────────────────────────────────────────────
+class Bot:
+    S_PANEL = "panel"
+    S_BROADCAST = "broadcast"
+    S_TRANSLATE = "translate"
 
     def __init__(self):
+        self.users, self.admins = load_db()
         self.seen: dict = {}
-        self.client = httpx.AsyncClient(timeout=20.0,
-            limits=httpx.Limits(max_connections=200, max_keepalive_connections=50))
-        self.load_data()
+        self.client = httpx.AsyncClient(
+            timeout=30.0,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        )
 
-    # ── DB ────────────────────────────────────────────────────────────────────
-    def load_data(self):
-        if os.path.exists(self.DB_FILE):
-            try:
-                with open(self.DB_FILE, 'r', encoding='utf-8') as f: d = json.load(f)
-                self.users = d.get('users', {}); self.admins = d.get('admins', {}); return
-            except Exception: pass
-        self.users = {}; self.admins = {}
+    def save(self): save_db(self.users, self.admins)
 
-    def save_data(self):
-        try:
-            with open(self.DB_FILE, 'w', encoding='utf-8') as f:
-                json.dump({'users': self.users, 'admins': self.admins}, f, ensure_ascii=False, indent=2)
-        except Exception as e: print(f"❌ DB: {e}")
+    # ── حالة الأدمن ──────────────────────────────────────────────────────────
+    def is_admin(self, uid):
+        return uid in self.admins and bool(self.admins[uid].get('state'))
 
-    def is_admin(self, uid): return uid in self.admins and bool(self.admins[uid].get('state'))
-    def admin_state(self, uid): return self.admins.get(uid, {}).get('state', '')
-    def set_admin_state(self, uid, state):
-        self.admins.setdefault(uid, {})['state'] = state; self.save_data()
-    def exit_admin(self, uid):
-        if uid in self.admins: self.admins[uid]['state'] = ''
-        self.save_data()
+    def get_state(self, uid):
+        return self.admins.get(uid, {}).get('state', '')
 
-    # ── شبكة ──────────────────────────────────────────────────────────────────
-    async def get_name(self, uid):
-        try:
-            r = await self.client.get(f"https://graph.facebook.com/{VERSION}/{uid}"
-                                      f"?fields=first_name&access_token={PAGE_ACCESS_TOKEN}")
-            return r.json().get('first_name', 'صديقي')
-        except Exception: return "صديقي"
+    def set_state(self, uid, state):
+        self.admins.setdefault(uid, {})['state'] = state
+        self.save()
 
-    def _split(self, text, max_len=1900):
-        if len(text) <= max_len: return [text]
-        chunks, rest = [], text
+    def clear_admin(self, uid):
+        if uid in self.admins:
+            self.admins[uid]['state'] = ''
+        self.save()
+
+    # ── إرسال ────────────────────────────────────────────────────────────────
+    def _chunks(self, text, n=1900):
+        if len(text) <= n:
+            return [text]
+        out, rest = [], text
         while rest:
-            if len(rest) <= max_len: chunks.append(rest); break
-            cut = rest.rfind('\n', 0, max_len)
-            if cut == -1: cut = rest.rfind(' ', 0, max_len)
-            if cut == -1: cut = max_len
-            chunks.append(rest[:cut].strip()); rest = rest[cut:].strip()
-        return chunks
+            if len(rest) <= n:
+                out.append(rest)
+                break
+            i = rest.rfind('\n', 0, n) or rest.rfind(' ', 0, n) or n
+            out.append(rest[:i].strip())
+            rest = rest[i:].strip()
+        return out
 
     async def send(self, uid, text):
         url = f"https://graph.facebook.com/{VERSION}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-        ok = True
-        for chunk in self._split(text):
-            if not chunk: continue
+        for chunk in self._chunks(text):
+            if not chunk:
+                continue
             try:
-                r = await self.client.post(url, json={"recipient":{"id":uid},"message":{"text":chunk}})
-                if r.status_code != 200: print(f"❌ API {uid}: {r.text}"); ok = False
-            except Exception as e: print(f"❌ send: {e}"); ok = False
+                r = await self.client.post(
+                    url, json={"recipient": {"id": uid}, "message": {"text": chunk}}
+                )
+                if r.status_code != 200:
+                    print(f"❌ send {uid}: {r.text}")
+            except Exception as e:
+                print(f"❌ send: {e}")
             await asyncio.sleep(0.15)
-        return ok
 
-    # ── ترجمة ─────────────────────────────────────────────────────────────────
+    async def get_name(self, uid):
+        try:
+            r = await self.client.get(
+                f"https://graph.facebook.com/{VERSION}/{uid}"
+                f"?fields=first_name&access_token={PAGE_ACCESS_TOKEN}"
+            )
+            return r.json().get('first_name', 'صديقي')
+        except Exception:
+            return "صديقي"
+
+    # ── ترجمة ────────────────────────────────────────────────────────────────
     async def detect_lang(self, text):
         def _d():
-            try: return detect(text)
-            except: return "auto"
+            try:
+                return detect(text)
+            except Exception:
+                return "auto"
         return await asyncio.to_thread(_d)
 
     async def translate(self, text, src, dst):
         def _do():
             tr = GoogleTranslator(source=src, target=dst)
-            out = [r for p in self._split(text, 4500) if p.strip() and (r := tr.translate(p))]
-            return "\n".join(out) if out else None
-        for attempt in range(3):
+            parts = [text[i:i+4500] for i in range(0, len(text), 4500)]
+            result = [tr.translate(p) for p in parts if p.strip()]
+            return "\n".join(r for r in result if r) or None
+        for i in range(3):
             try:
-                result = await asyncio.to_thread(_do)
-                if result: return result
+                r = await asyncio.to_thread(_do)
+                if r:
+                    return r
             except Exception as e:
-                if attempt == 2: print(f"❌ translate: {e}")
+                if i == 2:
+                    print(f"❌ translate: {e}")
                 await asyncio.sleep(0.5)
         return None
 
     # ══════════════════════════════════════════════════════════════════════════
-    # مسار الأدمن — منفصل تماماً
+    # مسار الأدمن
     # ══════════════════════════════════════════════════════════════════════════
-    async def send_admin_panel(self, uid):
-        total = len(self.users); total_tr = sum(u.get('count',0) for u in self.users.values())
+    async def send_panel(self, uid):
+        total = len(self.users)
+        total_tr = sum(u.get('count', 0) for u in self.users.values())
         await self.send(uid,
-            f"🛠️ لوحة تحكم {BOT_NAME}\n{'═'*32}\n"
-            f"👥 المستخدمون: {total}  |  🔤 ترجمات: {total_tr}\n{'─'*32}\n"
-            "1️⃣  إذاعة رسالة\n2️⃣  إحصائيات تفصيلية\n"
-            "3️⃣  أكثر 5 لغات\n4️⃣  تصفير العدادات\n"
-            f"{'─'*32}\n🔟  وضع الترجمة الشخصي\n0️⃣  إغلاق لوحة التحكم\n\n👉 أرسل رقم الخيار.")
+            f"🛠️ لوحة تحكم {BOT_NAME}\n{'═'*30}\n"
+            f"👥 المستخدمون: {total}  |  🔤 ترجمات: {total_tr}\n{'─'*30}\n"
+            "1️⃣  إذاعة رسالة\n2️⃣  إحصائيات\n3️⃣  أكثر 5 لغات\n4️⃣  تصفير العدادات\n"
+            f"{'─'*30}\n🔟  وضع الترجمة الشخصي\n0️⃣  إغلاق اللوحة\n\n👉 أرسل رقم الخيار."
+        )
 
-    async def _admin_panel(self, uid, text):
-        # الأرقام هنا = أوامر اللوحة فقط — لا تُرسل للترجمة أو LANGUAGES_MAP أبداً
+    async def admin_panel(self, uid, text):
         if text == "0":
-            self.exit_admin(uid)
+            self.clear_admin(uid)
             await self.send(uid, "🔒 تم إغلاق لوحة التحكم.\nأنت الآن في وضع المستخدم العادي.")
-        elif text == "10":
-            self.set_admin_state(uid, self.S_TRANSLATE)
-            await self.send(uid, "✅ دخلت وضع الترجمة الشخصي.\nأرسل [panel] للعودة للوحة التحكم.")
-        elif text == "1":
-            self.set_admin_state(uid, self.S_BROADCAST)
-            await self.send(uid, "📝 أرسل نص الإذاعة الآن.\nأرسل [0] للإلغاء.")
-        elif text == "2":
-            total = len(self.users); total_tr = sum(u.get('count',0) for u in self.users.values())
+            return
+        if text == "10":
+            self.set_state(uid, self.S_TRANSLATE)
+            await self.send(uid, "✅ وضع الترجمة الشخصي.\nأرسل أي نص للترجمة.\nأرسل [panel] للعودة.")
+            return
+        if text == "1":
+            self.set_state(uid, self.S_BROADCAST)
+            await self.send(uid, "📝 أرسل نص الإذاعة.\nأرسل [0] للإلغاء.")
+            return
+        if text == "2":
             new_ = sum(1 for u in self.users.values() if u.get('is_new'))
-            await self.send(uid, f"📊 إحصائيات\n{'─'*24}\n👥 مستخدمون: {total}\n🔤 ترجمات: {total_tr}\n🆕 جدد: {new_}")
+            total_tr = sum(u.get('count', 0) for u in self.users.values())
+            await self.send(uid,
+                f"📊 إحصائيات\n{'─'*24}\n"
+                f"👥 المستخدمون : {len(self.users)}\n"
+                f"🔤 الترجمات   : {total_tr}\n"
+                f"🆕 جدد        : {new_}"
+            )
         elif text == "3":
             counts = {}
-            for u in self.users.values(): ln = u.get('lang_name','?'); counts[ln] = counts.get(ln,0)+u.get('count',0)
-            top5 = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
-            await self.send(uid, f"🏆 أكثر 5 لغات\n{'─'*24}\n" + "".join(f"{i}. {ln}: {c}\n" for i,(ln,c) in enumerate(top5,1)))
+            for u in self.users.values():
+                ln = u.get('lang_name', 'غير محدد')
+                counts[ln] = counts.get(ln, 0) + u.get('count', 0)
+            top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            msg = f"🏆 أكثر 5 لغات\n{'─'*24}\n"
+            for i, (ln, cnt) in enumerate(top, 1):
+                msg += f"{i}. {ln}: {cnt}\n"
+            await self.send(uid, msg)
         elif text == "4":
-            for u in self.users.values(): u['count'] = 0
-            self.save_data(); await self.send(uid, "🔄 تم تصفير جميع العدادات.")
+            for u in self.users.values():
+                u['count'] = 0
+            self.save()
+            await self.send(uid, "🔄 تم تصفير عدادات الترجمة.")
         else:
-            await self.send(uid, "⚠️ خيار غير معروف."); await self.send_admin_panel(uid)
+            await self.send(uid, "⚠️ خيار غير معروف.")
+        await self.send_panel(uid)
 
-    async def _admin_broadcast(self, uid, text):
+    async def admin_broadcast(self, uid, text):
         if text == "0":
-            self.set_admin_state(uid, self.S_PANEL)
-            await self.send(uid, "❌ تم إلغاء الإذاعة."); await self.send_admin_panel(uid); return
-        self.set_admin_state(uid, self.S_PANEL)
-        broadcast = f"📢 رسالة من إدارة {BOT_NAME}\n{'─'*28}\n\n{text}\n\n{'─'*28}\n🤖 {BOT_NAME}"
-        await self.send(uid, "⏳ جاري الإرسال الجماعي...")
-        ok_c = fail_c = 0
-        for u_id in list(self.users.keys()):
-            if str(u_id) == str(PAGE_ID): continue
-            if await self.send(str(u_id), broadcast): ok_c += 1
-            else: fail_c += 1
+            self.set_state(uid, self.S_PANEL)
+            await self.send(uid, "❌ تم إلغاء الإذاعة.")
+            await self.send_panel(uid)
+            return
+        self.set_state(uid, self.S_PANEL)
+        msg = f"📢 رسالة من {BOT_NAME}\n{'─'*24}\n\n{text}\n\n{'─'*24}\n🤖 {BOT_NAME}"
+        await self.send(uid, "⏳ جاري الإرسال...")
+        ok = fail = 0
+        for u_id in list(self.users):
+            if str(u_id) == PAGE_ID:
+                continue
+            try:
+                await self.send(str(u_id), msg)
+                ok += 1
+            except Exception:
+                fail += 1
             await asyncio.sleep(0.3)
-        await self.send(uid, f"✅ انتهت الإذاعة\n✔️ نجاح: {ok_c} | ❌ فشل: {fail_c}")
-        await self.send_admin_panel(uid)
-
-    async def _admin_translate(self, uid, text):
-        # [panel] = العودة، أي نص آخر = ترجمة كالمستخدم العادي
-        if text.lower() == "panel":
-            self.set_admin_state(uid, self.S_PANEL); await self.send_admin_panel(uid)
-        else:
-            await self._user_logic(uid, text)
+        await self.send(uid, f"✅ انتهت الإذاعة\n✔️ نجاح: {ok} | ❌ فشل: {fail}")
+        await self.send_panel(uid)
 
     async def route_admin(self, uid, text):
-        state = self.admin_state(uid)
-        if   state == self.S_PANEL:     await self._admin_panel(uid, text)
-        elif state == self.S_BROADCAST: await self._admin_broadcast(uid, text)
-        elif state == self.S_TRANSLATE: await self._admin_translate(uid, text)
-        else: self.set_admin_state(uid, self.S_PANEL); await self.send_admin_panel(uid)
+        state = self.get_state(uid)
+        if state == self.S_PANEL:
+            await self.admin_panel(uid, text)
+        elif state == self.S_BROADCAST:
+            await self.admin_broadcast(uid, text)
+        elif state == self.S_TRANSLATE:
+            if text.lower() == "panel":
+                self.set_state(uid, self.S_PANEL)
+                await self.send_panel(uid)
+            else:
+                await self.user_logic(uid, text)
+        else:
+            self.set_state(uid, self.S_PANEL)
+            await self.send_panel(uid)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # مسار المستخدم العادي — منفصل تماماً
+    # مسار المستخدم
     # ══════════════════════════════════════════════════════════════════════════
     async def send_welcome(self, uid):
         name = await self.get_name(uid)
         await self.send(uid,
-            f"👋 أهلاً {name} في {BOT_NAME}!\n\n📋 الأوامر:\n"
-            "  • [قائمة] أو [0] — قائمة اللغات\n"
-            "  • [من:رقم]       — تغيير لغة المصدر\n"
-            "  • [عكس]          — عكس اتجاه الترجمة\n"
-            "  • [لغتي]         — إعداداتك الحالية\n\n"
-            "⚡ أرسل أي نص للترجمة الفورية!")
+            f"👋 أهلاً {name} في {BOT_NAME}!\n\n"
+            "📋 الأوامر:\n"
+            "  • [قائمة] أو [0]  — قائمة اللغات\n"
+            "  • [من:رقم]        — تغيير لغة المصدر\n"
+            "  • [عكس]           — عكس اتجاه الترجمة\n"
+            "  • [لغتي]          — إعداداتك الحالية\n"
+            "  • [مساعدة]        — هذه الرسالة\n\n"
+            "⚡ أرسل أي نص وسيُترجم فوراً!"
+        )
 
-    async def _user_logic(self, uid, text):
-        # المنطق المشترك للمستخدم العادي + وضع ترجمة الأدمن
-        u = self.users.setdefault(uid, {'lang_code':'ar','lang_name':'العربية',
-                                         'src_lang_code':'auto','src_lang_name':'تلقائي','count':0})
-        upper = text.upper()
+    async def user_logic(self, uid, text):
+        u = self.users.setdefault(uid, NEW_USER())
+        t = text.upper()
 
-        if text in ("0","قائمة") or upper == "MENU":
+        if text in ("0", "قائمة") or t == "MENU":
             await self.send(uid,
-                f"⚙️ إعدادات الترجمة\n{'─'*30}\n"
+                f"⚙️ إعدادات الترجمة\n{'─'*28}\n"
                 f"📤 من : {u.get('src_lang_name','تلقائي')}\n"
-                f"📥 إلى: {u.get('lang_name','العربية')}\n{'─'*30}\n\n{_LANG_MENU_BODY}\n"
-                "💡 أرسل رقم اللغة (1-30) لتغيير لغة الهدف.\n💡 [من:رقم] لتغيير المصدر."); return
+                f"📥 إلى: {u.get('lang_name','العربية')}\n{'─'*28}\n\n"
+                f"{LANG_MENU_BODY}\n"
+                "💡 أرسل رقم اللغة (1-30) لتعيين لغة الهدف.\n"
+                "💡 أرسل [من:رقم] لتغيير لغة المصدر."
+            )
+            return
 
-        if text in ("مساعدة","help") or upper == "HELP":
-            await self.send_welcome(uid); return
+        if text in ("مساعدة", "help") or t == "HELP":
+            await self.send_welcome(uid)
+            return
 
-        if text in ("لغتي","اعداداتي"):
+        if text in ("لغتي", "اعداداتي"):
             await self.send(uid,
                 f"📊 إعداداتك\n{'─'*22}\n"
                 f"📤 من : {u.get('src_lang_name','تلقائي')}\n"
                 f"📥 إلى: {u.get('lang_name','العربية')}\n"
-                f"🔤 ترجماتك: {u.get('count',0)}"); return
+                f"🔤 ترجماتك: {u.get('count',0)}"
+            )
+            return
 
-        if text in ("عكس","reverse") or upper == "REVERSE":
-            sc,sn = u.get('src_lang_code','auto'), u.get('src_lang_name','تلقائي')
-            dc,dn = u.get('lang_code','ar'),        u.get('lang_name','العربية')
-            u['lang_code'] = sc if sc!='auto' else 'ar'; u['lang_name'] = sn if sn!='تلقائي' else 'العربية'
-            u['src_lang_code'] = dc; u['src_lang_name'] = dn; self.save_data()
-            await self.send(uid, f"🔄 تم العكس\n📤 من: {u['src_lang_name']}\n📥 إلى: {u['lang_name']}"); return
+        if text in ("عكس", "reverse") or t == "REVERSE":
+            sc, sn = u.get('src_lang_code', 'auto'), u.get('src_lang_name', 'تلقائي')
+            dc, dn = u.get('lang_code', 'ar'),        u.get('lang_name', 'العربية')
+            u['lang_code']     = sc if sc != 'auto' else 'ar'
+            u['lang_name']     = sn if sn != 'تلقائي' else 'العربية'
+            u['src_lang_code'] = dc
+            u['src_lang_name'] = dn
+            self.save()
+            await self.send(uid,
+                f"🔄 تم عكس الاتجاه\n"
+                f"📤 من : {u['src_lang_name']}\n📥 إلى: {u['lang_name']}"
+            )
+            return
 
         if text.startswith("من:") or text.startswith("من :"):
-            num = text.split(":",1)[1].strip(); clean = str(int(num)) if num.isdigit() else num
+            num = text.split(":", 1)[1].strip()
+            clean = str(int(num)) if num.isdigit() else num
             if clean == "0":
-                u['src_lang_code']='auto'; u['src_lang_name']='تلقائي'; self.save_data()
-                await self.send(uid, "✅ لغة المصدر: تلقائي 🔍"); return
-            if clean in LANGUAGES_MAP:
-                s=LANGUAGES_MAP[clean]; u['src_lang_code']=s['code']; u['src_lang_name']=s['name']
-                self.save_data(); await self.send(uid, f"✅ لغة المصدر: {s['flag']} {s['name']}"); return
-            await self.send(uid, "⚠️ رقم غير صحيح (1-30)."); return
+                u['src_lang_code'] = 'auto'
+                u['src_lang_name'] = 'تلقائي'
+                self.save()
+                await self.send(uid, "✅ لغة المصدر: تلقائي 🔍")
+                return
+            if clean in LANG:
+                u['src_lang_code'] = LANG[clean][1]
+                u['src_lang_name'] = LANG[clean][0]
+                self.save()
+                await self.send(uid, f"✅ لغة المصدر: {LANG[clean][2]} {LANG[clean][0]}")
+                return
+            await self.send(uid, "⚠️ رقم غير صحيح (1-30).")
+            return
 
         if text.isdigit():
             clean = str(int(text))
-            if clean in LANGUAGES_MAP:
-                s=LANGUAGES_MAP[clean]; u['lang_code']=s['code']; u['lang_name']=s['name']
-                self.save_data(); await self.send(uid, f"✅ لغة الهدف: {s['flag']} {s['name']}"); return
-            await self.send(uid, "⚠️ الرقم خارج النطاق (1-30)."); return
+            if clean in LANG:
+                u['lang_code'] = LANG[clean][1]
+                u['lang_name'] = LANG[clean][0]
+                self.save()
+                await self.send(uid, f"✅ لغة الهدف: {LANG[clean][2]} {LANG[clean][0]}")
+                return
+            await self.send(uid, "⚠️ الرقم خارج النطاق (1-30).")
+            return
 
-        if len(text) < 2: await self.send(uid, "⚠️ النص قصير جداً."); return
-        src = u.get('src_lang_code','auto'); dst = u.get('lang_code','ar')
-        detected = await self.detect_lang(text) if src=='auto' else src
+        # ── ترجمة النص ────────────────────────────────────────────────────────
+        if len(text) < 2:
+            await self.send(uid, "⚠️ النص قصير جداً.")
+            return
+        src = u.get('src_lang_code', 'auto')
+        dst = u.get('lang_code', 'ar')
+        detected = await self.detect_lang(text) if src == 'auto' else src
         if detected == dst:
-            await self.send(uid, f"ℹ️ النص بالفعل بلغة الهدف ({u['lang_name']})."); return
+            await self.send(uid, f"ℹ️ النص بالفعل بلغة الهدف ({u['lang_name']}).")
+            return
         result = await self.translate(text, detected, dst)
         if result:
-            u['count'] = u.get('count',0)+1; self.save_data()
-            label = detected.upper() if src=='auto' else u.get('src_lang_name', src)
+            u['count'] = u.get('count', 0) + 1
+            self.save()
+            label = detected.upper() if src == 'auto' else u.get('src_lang_name', src)
             await self.send(uid, f"✨ [{label} → {u['lang_name']}]\n\n{result}")
         else:
             await self.send(uid, "⚠️ تعذرت الترجمة. حاول مجدداً.")
 
-    async def route_user(self, uid, text):
-        """نقطة دخول المستخدم العادي — لا تعرف شيئاً عن الأدمن."""
-        await self._user_logic(uid, text)
+    # ══════════════════════════════════════════════════════════════════════════
+    # المعالج الرئيسي
+    # ══════════════════════════════════════════════════════════════════════════
+    async def handle(self, msg: dict):
+        uid    = str(msg.get('from', {}).get('id', ''))
+        msg_id = msg.get('id', '')
+        text   = msg.get('message', '').strip()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # البوابة الرئيسية — الفصل التام بين الأدمن والمستخدم
-    # ══════════════════════════════════════════════════════════════════════════
-    async def handle_message(self, msg):
-        uid    = str(msg['from']['id'])
-        msg_id = msg['id']
-        text   = msg.get('message','').strip()
-        if self.seen.get(uid) == msg_id: return
+        if not uid or not text:
+            return
+        if self.seen.get(uid) == msg_id:
+            return
         self.seen[uid] = msg_id
-        if uid == str(PAGE_ID): return
+        if uid == PAGE_ID:
+            return
 
+        # مستخدم جديد
         if uid not in self.users:
-            self.users[uid] = {'lang_code':'ar','lang_name':'العربية',
-                               'src_lang_code':'auto','src_lang_name':'تلقائي','count':0,'is_new':True}
-            self.save_data(); await self.send_welcome(uid); return
+            self.users[uid] = {**NEW_USER(), 'is_new': True}
+            self.save()
+            await self.send_welcome(uid)
+            return
 
-        # كلمة مرور الأدمن — أولوية قصوى
+        # كلمة مرور الأدمن (أولوية قصوى)
         if text == ADMIN_PASS:
-            self.set_admin_state(uid, self.S_PANEL); await self.send_admin_panel(uid); return
+            self.set_state(uid, self.S_PANEL)
+            await self.send_panel(uid)
+            return
 
-        # الفصل التام: أدمن نشط → مسار الأدمن | غيره → مسار المستخدم
-        if self.is_admin(uid): await self.route_admin(uid, text)
-        else:                   await self.route_user(uid, text)
+        # توجيه حسب النوع
+        if self.is_admin(uid):
+            await self.route_admin(uid, text)
+        else:
+            await self.user_logic(uid, text)
 
-    async def fetch_latest(self):
-        url = (f"https://graph.facebook.com/{VERSION}/me/conversations"
-               f"?fields=messages{{message,from,id}}&access_token={PAGE_ACCESS_TOKEN}")
+    # ══════════════════════════════════════════════════════════════════════════
+    # Long Polling — جلب الرسائل بدون Webhook
+    # ══════════════════════════════════════════════════════════════════════════
+    async def fetch_messages(self):
+        """جلب آخر رسالة من كل محادثة عبر Graph API."""
+        url = (
+            f"https://graph.facebook.com/{VERSION}/{PAGE_ID}/conversations"
+            f"?fields=id,messages.limit(1){{message,from,id,created_time}}"
+            f"&access_token={PAGE_ACCESS_TOKEN}"
+        )
         try:
             r = await self.client.get(url)
-            for convo in r.json().get('data',[]):
-                msgs = convo.get('messages',{}).get('data',[])
-                if msgs and str(msgs[0]['from']['id']) != str(PAGE_ID): return msgs[0]
-        except Exception as e: print(f"❌ fetch: {e}")
-        return None
+            if r.status_code != 200:
+                print(f"❌ fetch: {r.status_code} {r.text}")
+                return
+            data = r.json().get('data', [])
+            tasks = []
+            for conv in data:
+                for msg in conv.get('messages', {}).get('data', []):
+                    tasks.append(self.handle(msg))
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            print(f"❌ fetch_messages: {e}")
+
+    async def polling_loop(self):
+        """حلقة Long Polling — تعمل بشكل مستمر كل 3 ثوانٍ."""
+        print(f"🚀 {BOT_NAME} — Long Polling started...")
+        while True:
+            try:
+                await self.fetch_messages()
+            except Exception as e:
+                print(f"❌ polling_loop: {e}")
+            await asyncio.sleep(3)
 
     async def run(self):
-        print(f"{'═'*42}\n  {BOT_NAME} v2  |  ONLINE ✅\n{'═'*42}")
-        while True:
-            msg = await self.fetch_latest()
-            if msg: asyncio.create_task(self.handle_message(msg))
-            await asyncio.sleep(0.5)
+        await self.polling_loop()
 
-def start_bot(): asyncio.run(SwiftTranslateBot().run())
-
-if __name__ == "__main__":
+# ─── نقطة الدخول ─────────────────────────────────────────────────────────────
+if __name__ == '__main__':
     threading.Thread(target=run_web_server, daemon=True).start()
-    start_bot()
+    bot = Bot()
+    asyncio.run(bot.run())
