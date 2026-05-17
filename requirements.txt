@@ -1,7 +1,6 @@
 flask
-httpx
-deep-translator
-langdetect
+httpx[http2]
+gunicorn
 
 
 
