@@ -5,344 +5,461 @@ import os
 import threading
 from flask import Flask
 from deep_translator import GoogleTranslator
+from langdetect import detect
 
-# --- إعدادات خادم الويب (Render Web Service) ---
+# ─── إعداد خادم الويب ───────────────────────────────────────────────────────
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "SwiftTranslate Pro is Running!"
+    return "SwiftTranslate Pro v2 is Running! ✅"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
-# --- إعدادات البوت الأساسية ---
+# ─── إعدادات البوت ──────────────────────────────────────────────────────────
 PAGE_ACCESS_TOKEN = 'EAAMJBZBOZCnhsBRT50G56dfJOtCoCsONXnds8d1dp6JcyFhb7Dp7ljOgPjfmsLDqZC6IFHjOyiDuyxvkMxpOzWcPYpLzq8vJOt2ZBquqcEPTGggmsnYwnEqHkotjTJlrh8pk19cbAVaj5ZAhIYWBdwjk0UI5b9ICOoAs7CD2zfezlPsZB7alH1ez9YMDXX6ZBaGjXrU3QZDZD'
-PAGE_ID = '61589538039390' 
-VERSION = 'v19.0'
-BOT_NAME = "SwiftTranslate Pro"
-ADMIN_ID = '61589585954378'  # معرف المسؤول الثابت والمعتمد للنظام
+PAGE_ID    = '61589538039390'
+VERSION    = 'v19.0'
+BOT_NAME   = "SwiftTranslate Pro"
+ADMIN_PASS = "idriss78"       # كلمة مرور لوحة التحكم
+ADMIN_ID   = '61589585954378' # معرف المسؤول الثابت
 
 LANGUAGES_MAP = {
-    "1": {"name": "الإنجليزية", "code": "en", "flag": "🇺🇸"},
-    "2": {"name": "الفرنسية", "code": "fr", "flag": "🇫🇷"},
-    "3": {"name": "الألمانية", "code": "de", "flag": "🇩🇪"},
-    "4": {"name": "الإسبانية", "code": "es", "flag": "🇪🇸"},
-    "5": {"name": "التركية", "code": "tr", "flag": "🇹🇷"},
-    "6": {"name": "الإيطالية", "code": "it", "flag": "🇮🇹"},
-    "7": {"name": "الروسية", "code": "ru", "flag": "🇷🇺"},
-    "8": {"name": "الصينية", "code": "zh-cn", "flag": "🇨🇳"},
-    "9": {"name": "اليابانية", "code": "ja", "flag": "🇯🇵"},
-    "10": {"name": "الكورية", "code": "ko", "flag": "🇰🇷"},
-    "11": {"name": "البرتغالية", "code": "pt", "flag": "🇵🇹"},
-    "12": {"name": "الهندية", "code": "hi", "flag": "🇮🇳"},
-    "13": {"name": "الإندونيسية", "code": "id", "flag": "🇮🇩"},
-    "14": {"name": "الهولندية", "code": "nl", "flag": "🇳🇱"},
-    "15": {"name": "السويدية", "code": "sv", "flag": "🇸🇪"},
-    "16": {"name": "البولندية", "code": "pl", "flag": "🇵🇱"},
-    "17": {"name": "اليونانية", "code": "el", "flag": "🇬🇷"},
-    "18": {"name": "التايلاندية", "code": "th", "flag": "🇹🇭"},
-    "19": {"name": "الفيتنامية", "code": "vi", "flag": "🇻🇳"},
-    "20": {"name": "العربية", "code": "ar", "flag": "🇩🇿"},
-    "21": {"name": "النرويجية", "code": "no", "flag": "🇳🇴"},
-    "22": {"name": "الدنماركية", "code": "da", "flag": "🇩🇰"},
-    "23": {"name": "الفنلندية", "code": "fi", "flag": "🇫🇮"},
-    "24": {"name": "المجرية", "code": "hu", "flag": "🇭🇺"},
-    "25": {"name": "التشيكية", "code": "cs", "flag": "🇨🇿"},
-    "26": {"name": "العبرية", "code": "he", "flag": "🇮🇱"},
-    "27": {"name": "الرومانية", "code": "ro", "flag": "🇷🇴"},
-    "28": {"name": "الفارسية", "code": "fa", "flag": "🇮ران"},
-    "29": {"name": "الأوكرانية", "code": "uk", "flag": "🇺🇦"},
-    "30": {"name": "الأردية", "code": "ur", "flag": "🇵🇰"}
+    "1":  {"name": "الإنجليزية",   "code": "en",    "flag": "🇺🇸"},
+    "2":  {"name": "الفرنسية",     "code": "fr",    "flag": "🇫🇷"},
+    "3":  {"name": "الألمانية",    "code": "de",    "flag": "🇩🇪"},
+    "4":  {"name": "الإسبانية",   "code": "es",    "flag": "🇪🇸"},
+    "5":  {"name": "التركية",      "code": "tr",    "flag": "🇹🇷"},
+    "6":  {"name": "الإيطالية",   "code": "it",    "flag": "🇮🇹"},
+    "7":  {"name": "الروسية",      "code": "ru",    "flag": "🇷🇺"},
+    "8":  {"name": "الصينية",      "code": "zh-CN", "flag": "🇨🇳"},
+    "9":  {"name": "اليابانية",   "code": "ja",    "flag": "🇯🇵"},
+    "10": {"name": "الكورية",      "code": "ko",    "flag": "🇰🇷"},
+    "11": {"name": "البرتغالية",  "code": "pt",    "flag": "🇵🇹"},
+    "12": {"name": "الهندية",      "code": "hi",    "flag": "🇮🇳"},
+    "13": {"name": "الإندونيسية", "code": "id",    "flag": "🇮🇩"},
+    "14": {"name": "الهولندية",   "code": "nl",    "flag": "🇳🇱"},
+    "15": {"name": "السويدية",    "code": "sv",    "flag": "🇸🇪"},
+    "16": {"name": "البولندية",   "code": "pl",    "flag": "🇵🇱"},
+    "17": {"name": "اليونانية",   "code": "el",    "flag": "🇬🇷"},
+    "18": {"name": "التايلاندية", "code": "th",    "flag": "🇹🇭"},
+    "19": {"name": "الفيتنامية",  "code": "vi",    "flag": "🇻🇳"},
+    "20": {"name": "العربية",      "code": "ar",    "flag": "🇩🇿"},
+    "21": {"name": "النرويجية",   "code": "no",    "flag": "🇳🇴"},
+    "22": {"name": "الدنماركية",  "code": "da",    "flag": "🇩🇰"},
+    "23": {"name": "الفنلندية",   "code": "fi",    "flag": "🇫🇮"},
+    "24": {"name": "المجرية",      "code": "hu",    "flag": "🇭🇺"},
+    "25": {"name": "التشيكية",    "code": "cs",    "flag": "🇨🇿"},
+    "26": {"name": "العبرية",      "code": "he",    "flag": "🇮🇱"},
+    "27": {"name": "الرومانية",   "code": "ro",    "flag": "🇷🇴"},
+    "28": {"name": "الفارسية",    "code": "fa",    "flag": "🇮🇷"},
+    "29": {"name": "الأوكرانية",  "code": "uk",    "flag": "🇺🇦"},
+    "30": {"name": "الأردية",      "code": "ur",    "flag": "🇵🇰"},
 }
 
-class FacebookPollingBot:
+# رسم قائمة اللغات (يُستدعى مرة واحدة)
+_LANG_MENU_BODY = ""
+for _k in range(1, 31):
+    _v = LANGUAGES_MAP[str(_k)]
+    _LANG_MENU_BODY += f" [{str(_k).zfill(2)}] {_v['flag']} {_v['name']}\n"
+
+# ─── كلاس البوت الرئيسي ─────────────────────────────────────────────────────
+class SwiftTranslateBot:
+
+    DB_FILE = "bot_database.json"
+
     def __init__(self):
-        self.db_file = "bot_database.json"
+        self.processed_messages: dict = {}
+        self.client = httpx.AsyncClient(
+            timeout=20.0,
+            limits=httpx.Limits(max_connections=200, max_keepalive_connections=50)
+        )
         self.load_data()
-        self.processed_messages = {} 
-        self.client = httpx.AsyncClient(timeout=15.0, limits=httpx.Limits(max_connections=500, max_keepalive_connections=100))
 
+    # ── قاعدة البيانات ───────────────────────────────────────────────────────
     def load_data(self):
-        if os.path.exists(self.db_file):
+        if os.path.exists(self.DB_FILE):
             try:
-                with open(self.db_file, 'r', encoding='utf-8') as f:
+                with open(self.DB_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.user_data = data.get('user_data', {})
-                    self.admin_state = data.get('admin_state', {})
-            except: 
-                self.reset_memory()
-        else:
-            self.reset_memory()
-
-    def reset_memory(self):
-        self.user_data = {}
-        self.admin_state = {'waiting_for_broadcast': False, 'in_control_panel': False}
+                self.users: dict  = data.get('users', {})
+                self.admins: dict = data.get('admins', {})  # {uid: state}
+                return
+            except Exception:
+                pass
+        self.users:  dict = {}
+        self.admins: dict = {}
 
     def save_data(self):
         try:
-            with open(self.db_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'user_data': self.user_data, 
-                    'admin_state': self.admin_state
-                }, f, ensure_ascii=False, indent=4)
+            with open(self.DB_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'users': self.users, 'admins': self.admins},
+                          f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"❌ Error saving database: {e}")
+            print(f"❌ DB save error: {e}")
 
-    async def get_user_name(self, user_id):
-        url = f"https://graph.facebook.com/{VERSION}/{user_id}?fields=first_name&access_token={PAGE_ACCESS_TOKEN}"
+    def get_admin(self, uid: str) -> dict:
+        if uid not in self.admins:
+            self.admins[uid] = {
+                'in_panel': False,
+                'waiting_broadcast': False,
+                'waiting_target_lang': False,
+            }
+        return self.admins[uid]
+
+    # ── مساعدات الشبكة ───────────────────────────────────────────────────────
+    async def get_user_name(self, uid: str) -> str:
+        url = (f"https://graph.facebook.com/{VERSION}/{uid}"
+               f"?fields=first_name&access_token={PAGE_ACCESS_TOKEN}")
         try:
-            response = await self.client.get(url)
-            data = response.json()
-            return data.get('first_name', 'صديقي')
-        except: 
+            r = await self.client.get(url)
+            return r.json().get('first_name', 'صديقي')
+        except Exception:
             return "صديقي"
 
-    def split_text(self, text, max_length=1900):
-        if len(text) <= max_length:
+    def _split(self, text: str, max_len: int = 1900) -> list:
+        if len(text) <= max_len:
             return [text]
-        chunks = []
-        while text:
-            if len(text) <= max_length:
-                chunks.append(text)
-                break
-            split_at = text.rfind('\n', 0, max_length)
-            if split_at == -1:
-                split_at = text.rfind(' ', 0, max_length)
-            if split_at == -1:
-                split_at = max_length
-            chunks.append(text[:split_at].strip())
-            text = text[split_at:].strip()
+        chunks, rest = [], text
+        while rest:
+            if len(rest) <= max_len:
+                chunks.append(rest); break
+            cut = rest.rfind('\n', 0, max_len)
+            if cut == -1: cut = rest.rfind(' ', 0, max_len)
+            if cut == -1: cut = max_len
+            chunks.append(rest[:cut].strip())
+            rest = rest[cut:].strip()
         return chunks
 
-    async def send_message(self, recipient_id, text):
-        url = f"https://graph.facebook.com/{VERSION}/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-        text_chunks = self.split_text(text, max_length=1900)
-        success = True
-        
-        for chunk in text_chunks:
-            if not chunk:
-                continue
-            payload = {"recipient": {"id": str(recipient_id)}, "message": {"text": chunk}}
-            try: 
-                res = await self.client.post(url, json=payload)
-                if res.status_code != 200:
-                    print(f"❌ Facebook API Error for User {recipient_id}: {res.text}")
-                    success = False
-                await asyncio.sleep(0.2)
-            except Exception as e: 
-                print(f"❌ Error sending message chunk to {recipient_id}: {e}")
-                success = False
-        return success
+    async def send(self, uid: str, text: str) -> bool:
+        url = (f"https://graph.facebook.com/{VERSION}"
+               f"/me/messages?access_token={PAGE_ACCESS_TOKEN}")
+        ok = True
+        for chunk in self._split(text):
+            if not chunk: continue
+            try:
+                r = await self.client.post(
+                    url, json={"recipient": {"id": uid}, "message": {"text": chunk}})
+                if r.status_code != 200:
+                    print(f"❌ API {uid}: {r.text}"); ok = False
+            except Exception as e:
+                print(f"❌ send {uid}: {e}"); ok = False
+            await asyncio.sleep(0.15)
+        return ok
 
-    async def show_welcome_msg(self, user_id):
-        user_name = await self.get_user_name(user_id)
-        msg = (f"👋 مرحباً بك {user_name} في {BOT_NAME}!\n\n"
-               f"🚀 أسرع وأقوى بوت لترجمة النصوص الطويلة والقصيرة مباشرة داخل فيسبوك ميسنجر.\n\n"
-               f"⚙️ للتحكم في إعدادات اللغة واختيار لغتك المستهدفة، أرسل كلمة (قائمة) أو الرقم (0).\n\n"
-               f"📝 ابدأ الآن بإرسال أي نص، وسيتم ترجمته فوراً للغتك المحددة!")
-        await self.send_message(user_id, msg)
+    # ── الترجمة ──────────────────────────────────────────────────────────────
+    async def detect_lang(self, text: str) -> str:
+        """يكتشف لغة النص تلقائياً."""
+        def _detect():
+            try:
+                return detect(text)
+            except Exception:
+                return "auto"
+        return await asyncio.to_thread(_detect)
 
-    async def show_menu(self, user_id):
-        current_lang = self.user_data.get(str(user_id), {}).get('lang_name', 'العربية')
-        menu = f"⚙️ [ إعدادات الترجمة الحالية ]\n"
-        menu += f"🌐 اللغة المستهدفة الحالية: {current_lang}\n"
-        menu += "----------------------------------------\n\n"
-        for k in range(1, 31):
-            key = str(k)
-            v = LANGUAGES_MAP[key]
-            num = key.zfill(2)
-            flag_icon = v.get('flag', v.get('round', '🌐'))
-            menu += f" [{num}] {flag_icon} {v['name']}\n"
-        menu += "\n🔄 لتغيير اللغة: أرسل رقمها فقط (مثال: 1).\n📝 للترجمة: أرسل النص مباشرة دون أرقام."
-        await self.send_message(user_id, menu)
-
-    async def show_admin_panel(self, admin_id):
-        panel = (f"🛠️ [ لوحة تحكم المشرف ]\n"
-                 f"----------------------------------------\n\n"
-                 f"📢 أرسل [ M ] 👈 لتفعيل البث الجماعي (الإذاعة) لجميع المستخدمين\n"
-                 f"📊 أرسل [ B ] 👈 لعرض إحصائيات المستخدمين والترجمات المتوفرة\n"
-                 f"🚪 أرسل [ خروج ] 👈 لإغلاق لوحة التحكم والعودة لوضع الترجمة")
-        await self.send_message(admin_id, panel)
-
-    async def get_latest_messages(self):
-        url = f"https://graph.facebook.com/{VERSION}/me/conversations?fields=messages{{message,from,id}}&access_token={PAGE_ACCESS_TOKEN}"
-        try:
-            response = await self.client.get(url)
-            data = response.json()
-            if 'data' in data and data['data']:
-                for convo in data['data']:
-                    if 'messages' in convo and convo['messages']['data']:
-                        latest_msg = convo['messages']['data'][0]
-                        if str(latest_msg['from']['id']) != str(PAGE_ID):
-                            return latest_msg
-        except Exception as e:
-            print(f"❌ Error fetching messages: {e}")
+    async def translate(self, text: str, source: str, target: str) -> str | None:
+        """يترجم النص مع دعم الأجزاء الكبيرة وإعادة المحاولة."""
+        def _do():
+            tr = GoogleTranslator(source=source, target=target)
+            parts = self._split(text, max_len=4500)
+            result = []
+            for p in parts:
+                if not p.strip(): continue
+                out = tr.translate(p)
+                if not out: return None
+                result.append(out)
+            return "\n".join(result)
+        for attempt in range(3):
+            try:
+                out = await asyncio.to_thread(_do)
+                if out: return out
+            except Exception as e:
+                if attempt == 2: print(f"❌ translate error: {e}")
+                await asyncio.sleep(0.5)
         return None
 
-    async def safe_translate(self, text, target_language):
-        def _translate():
-            translator = GoogleTranslator(source='auto', target=target_language)
-            input_chunks = self.split_text(text, max_length=1500)
-            translated_chunks = []
-            for chunk in input_chunks:
-                if not chunk.strip():
-                    continue
-                translated_part = translator.translate(chunk)
-                if translated_part:
-                    translated_chunks.append(translated_part)
-                else:
-                    return None
-            return "\n".join(translated_chunks)
+    # ── الرسائل الجاهزة ──────────────────────────────────────────────────────
+    async def send_welcome(self, uid: str):
+        name = await self.get_user_name(uid)
+        await self.send(uid,
+            f"👋 أهلاً بك {name} في {BOT_NAME} v2!\n\n"
+            "🌐 أرسل أي نص وسيُترجم فوراً للغتك المختارة.\n"
+            "🔍 يتعرف البوت تلقائياً على لغة النص ويترجمها.\n"
+            "🔄 يدعم الترجمة العكسية والترجمة بين أي لغتين.\n\n"
+            "📋 الأوامر المتاحة:\n"
+            "  • [0] أو (قائمة) — اختيار لغة الترجمة\n"
+            "  • [عكس]         — عكس اتجاه الترجمة\n"
+            "  • [لغتي]        — معرفة إعداداتك الحالية\n"
+            "  • [مساعدة]      — عرض هذه الرسالة\n\n"
+            "⚡ ابدأ الآن بإرسال أي نص!")
 
-        return await asyncio.to_thread(_translate)
+    async def send_menu(self, uid: str):
+        u = self.users[uid]
+        src_name = u.get('src_lang_name', 'تلقائي')
+        dst_name = u.get('lang_name', 'العربية')
+        header = (f"⚙️ إعدادات الترجمة\n"
+                  f"{'─'*34}\n"
+                  f"📤 من : {src_name}\n"
+                  f"📥 إلى: {dst_name}\n"
+                  f"{'─'*34}\n\n"
+                  f"{_LANG_MENU_BODY}\n"
+                  "💡 أرسل رقم اللغة لتغيير لغة الوجهة.\n"
+                  "💡 أرسل [من:رقم] لتغيير لغة المصدر، مثال: من:1\n"
+                  "💡 أرسل [عكس] لعكس اتجاه الترجمة.")
+        await self.send(uid, header)
 
-    async def handle_user_request(self, latest_msg):
-        msg_id = latest_msg['id']
-        user_id = str(latest_msg['from']['id'])
-        text = latest_msg.get('message', '').strip()
-        text_upper = text.upper()
+    async def send_my_settings(self, uid: str):
+        u = self.users[uid]
+        src = u.get('src_lang_name', 'تلقائي (كشف تلقائي)')
+        dst = u.get('lang_name', 'العربية')
+        count = u.get('count', 0)
+        await self.send(uid,
+            f"📊 إعداداتك الحالية\n{'─'*28}\n"
+            f"📤 لغة المصدر : {src}\n"
+            f"📥 لغة الهدف  : {dst}\n"
+            f"🔤 عدد ترجماتك: {count} عملية")
 
-        if self.processed_messages.get(user_id) == msg_id:
+    # ── لوحة الإدارة ─────────────────────────────────────────────────────────
+    async def send_admin_panel(self, uid: str):
+        await self.send(uid,
+            f"🛠️ لوحة تحكم {BOT_NAME}\n{'═'*32}\n\n"
+            "1️⃣  إذاعة رسالة لجميع المستخدمين\n"
+            "2️⃣  إحصائيات المستخدمين والترجمات\n"
+            "3️⃣  قائمة أكثر 5 لغات استخداماً\n"
+            "4️⃣  إعادة تشغيل الإحصائيات (تصفير العدادات)\n"
+            "0️⃣  خروج من لوحة التحكم\n\n"
+            "👉 أرسل رقم الخيار فقط.")
+
+    async def handle_admin_panel(self, uid: str, text: str):
+        st = self.get_admin(uid)
+
+        # انتظار نص الإذاعة
+        if st.get('waiting_broadcast'):
+            if text == "0":
+                st['waiting_broadcast'] = False
+                self.save_data()
+                await self.send(uid, "❌ تم إلغاء الإذاعة.")
+                return
+            st['waiting_broadcast'] = False
+            self.save_data()
+            broadcast_text = (f"📢 رسالة من إدارة {BOT_NAME}\n{'─'*30}\n\n"
+                              f"{text}\n\n{'─'*30}\n🤖 {BOT_NAME}")
+            await self.send(uid, "⏳ جاري الإرسال الجماعي...")
+            ok_c, fail_c = 0, 0
+            for u_id in list(self.users.keys()):
+                if u_id == str(PAGE_ID): continue
+                if await self.send(str(u_id), broadcast_text): ok_c += 1
+                else: fail_c += 1
+                await asyncio.sleep(0.3)
+            await self.send(uid,
+                f"✅ انتهت الإذاعة\n{'─'*24}\n"
+                f"نجاح : {ok_c}\nفشل  : {fail_c}\nإجمالي: {len(self.users)}")
             return
 
-        self.processed_messages[user_id] = msg_id
-
-        # --- [ تسجيل المستخدم تلقائياً فوراً عند تفاعله ] ---
-        is_new_user = False
-        if user_id not in self.user_data and user_id != str(PAGE_ID):
-            self.user_data[user_id] = {'lang_code': 'ar', 'lang_name': 'العربية', 'count': 0}
+        # اختيارات اللوحة
+        if text == "1":
+            st['waiting_broadcast'] = True
             self.save_data()
-            is_new_user = True
-
-        # إرسال رسالة الترحيب للمستخدم الجديد
-        if is_new_user and user_id != ADMIN_ID:
-            await self.show_welcome_msg(user_id)
-            return
-
-        # --- [ عزل وفحص أوامر المسؤول المعتمد ] ---
-        if user_id == ADMIN_ID:
-            
-            # 1. حالة انتظار نص الإذاعة والجروب كاست
-            if self.admin_state.get('waiting_for_broadcast', False):
-                if text == "خروج":
-                    self.admin_state['waiting_for_broadcast'] = False
-                    self.admin_state['in_control_panel'] = False
-                    self.save_data()
-                    await self.send_message(ADMIN_ID, "🚪 تم إلغاء البث الجماعي والخروج من لوحة التحكم بنجاح.")
-                    return
-                
-                self.admin_state['waiting_for_broadcast'] = False
-                self.save_data()
-                
-                await self.send_message(ADMIN_ID, "⏳ جاري بدء الإرسال الجماعي الآمن لجميع المشتركين.. يرجى الانتظار.")
-                
-                formatted_broadcast_msg = (f"📢 [ رسالة جماعية من إدارة البوت ] ✨\n"
-                                            f"----------------------------------------\n\n"
-                                            f"{text}\n\n"
-                                            f"----------------------------------------\n"
-                                            f"🤖 شكراً لاستخدامك {BOT_NAME}!")
-                
-                success_count = 0
-                fail_count = 0
-                total_users = len(self.user_data)
-                
-                # إرسال الرسائل لجميع المسجلين دون أي استثناء (بما فيهم الأدمن نفسه)
-                for u_id in list(self.user_data.keys()):
-                    u_id_str = str(u_id)
-                    if u_id_str == str(PAGE_ID):
-                        continue
-                    
-                    res_status = await self.send_message(u_id_str, formatted_broadcast_msg)
-                    if res_status:
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                    await asyncio.sleep(0.3)  # تأخير آمن لمنع الحظر والسبام
-                
-                report = (f"📋 [ تقرير انتهاء البث الجماعي ]\n"
-                          f"----------------------------------------\n"
-                          f"✅ تم الإرسال بنجاح إلى: {success_count} مستخدم\n"
-                          f"❌ فشل الإرسال إلى: {fail_count} مستخدم\n"
-                          f"👥 إجمالي المسجلين في النظام: {total_users}")
-                await self.send_message(ADMIN_ID, report)
-                return
-
-            # 2. أمر فتح لوحة التحكم للمسؤول (panel أو control)
-            if text_upper in ["PANEL", "CONTROL"] and not self.admin_state.get('in_control_panel', False):
-                self.admin_state['in_control_panel'] = True
-                self.save_data()
-                await self.show_admin_panel(ADMIN_ID)
-                return
-
-            # 3. معالجة خيارات لوحة التحكم في حال تفعيلها
-            if self.admin_state.get('in_control_panel', False):
-                if text == "خروج":
-                    self.admin_state['in_control_panel'] = False
-                    self.save_data()
-                    await self.send_message(ADMIN_ID, "🚪 تم إغلاق لوحة التحكم، أنت الآن في وضع الترجمة الاعتيادي.")
-                    return
-
-                elif text_upper == "M":
-                    self.admin_state['waiting_for_broadcast'] = True
-                    self.save_data()
-                    await self.send_message(ADMIN_ID, "📢 [ وضع الإذاعة نشط ]\n\nأرسل الآن نص الرسالة التي تريد بثها للجميع، أو أرسل (خروج) للإلغاء.")
-                    return
-
-                elif text_upper == "B":
-                    total_users = len(self.user_data)
-                    total_translations = sum(u.get('count', 0) for u in self.user_data.values())
-                    stats_msg = (f"📊 [ إحصائيات النظام الحالية ]\n"
-                                 f"----------------------------------------\n"
-                                 f"👥 إجمالي المستخدمين المشتركين: {total_users}\n"
-                                 f"🔤 إجمالي عمليات الترجمة الناجحة: {total_translations}")
-                    await self.send_message(ADMIN_ID, stats_msg)
-                    return
-
-        # --- [ 4. نظام المستخدمين العاديين والترجمة ] ---
-        if text == "0" or text == "قائمة" or text_upper == "MENU":
-            await self.show_menu(user_id)
-        
-        elif text in LANGUAGES_MAP or (text.isdigit() and str(int(text)) in LANGUAGES_MAP):
-            clean_text = str(int(text))
-            selected = LANGUAGES_MAP[clean_text]
-            self.user_data[user_id]['lang_code'] = selected['code']
-            self.user_data[user_id]['lang_name'] = selected['name']
+            await self.send(uid, "📝 أرسل الآن نص الإذاعة، أو [0] للإلغاء.")
+        elif text == "2":
+            total = len(self.users)
+            total_tr = sum(u.get('count', 0) for u in self.users.values())
+            await self.send(uid,
+                f"📊 الإحصائيات\n{'─'*24}\n"
+                f"👥 المستخدمون: {total}\n"
+                f"🔤 إجمالي الترجمات: {total_tr}")
+        elif text == "3":
+            lang_counts: dict = {}
+            for u in self.users.values():
+                ln = u.get('lang_name', 'غير محدد')
+                lang_counts[ln] = lang_counts.get(ln, 0) + u.get('count', 0)
+            top5 = sorted(lang_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            msg = "🏆 أكثر 5 لغات استخداماً\n" + "─"*24 + "\n"
+            for i, (ln, cnt) in enumerate(top5, 1):
+                msg += f"{i}. {ln}: {cnt} ترجمة\n"
+            await self.send(uid, msg)
+        elif text == "4":
+            for u in self.users.values():
+                u['count'] = 0
             self.save_data()
-            flag_icon = selected.get('flag', selected.get('round', '🌐'))
-            await self.send_message(user_id, f"✅ تم حفظ تفضيلاتك! لغة الترجمة الحالية هي: {flag_icon} {selected['name']}")
-        
+            await self.send(uid, "🔄 تم تصفير جميع العدادات بنجاح.")
+        elif text == "0":
+            st['in_panel'] = False
+            self.save_data()
+            await self.send(uid, "🚪 تم الخروج من لوحة التحكم. أنت الآن في وضع الترجمة.")
         else:
-            try:
-                user_settings = self.user_data[user_id]
-                target_language = user_settings['lang_code']
-                
-                translated = await self.safe_translate(text, target_language)
-                
-                if translated:
-                    self.user_data[user_id]['count'] += 1
-                    self.save_data()
-                    reply = f"✨ تم الترجمة إلى ({user_settings['lang_name']}):\n\n{translated}"
-                    await self.send_message(user_id, reply)
-                else:
-                    await self.send_message(user_id, "⚠️ عذراً، تعذر ترجمة هذا النص. يرجى التحقق من المحتوى والمحاولة مجدداً.")
-            except Exception as e:
-                print(f"❌ Translation Error: {e}")
-                await self.send_message(user_id, "⚠️ واجهنا خطأ فني مؤقت أثناء معالجة الترجمة، يرجى المحاولة مرة أخرى.")
+            await self.send_admin_panel(uid)
 
-    async def process_logic(self):
-        print(f"--- {BOT_NAME} IS ONLINE WITH HTTPX & ASYNCIO ✅ ---")
+    # ── معالجة الرسائل ───────────────────────────────────────────────────────
+    async def handle_message(self, msg: dict):
+        uid    = str(msg['from']['id'])
+        msg_id = msg['id']
+        text   = msg.get('message', '').strip()
+        upper  = text.upper()
+
+        if self.processed_messages.get(uid) == msg_id: return
+        self.processed_messages[uid] = msg_id
+        if uid == str(PAGE_ID): return
+
+        # تسجيل مستخدم جديد
+        is_new = uid not in self.users
+        if is_new:
+            self.users[uid] = {
+                'lang_code': 'ar', 'lang_name': 'العربية',
+                'src_lang_code': 'auto', 'src_lang_name': 'تلقائي',
+                'count': 0
+            }
+            self.save_data()
+            await self.send_welcome(uid)
+            return
+
+        u = self.users[uid]
+
+        # ─── فحص كلمة سر لوحة الإدارة (لأي مستخدم) ─────────────────────
+        if text == ADMIN_PASS:
+            st = self.get_admin(uid)
+            st['in_panel'] = True
+            self.save_data()
+            await self.send_admin_panel(uid)
+            return
+
+        # ─── لوحة الإدارة ────────────────────────────────────────────────
+        st = self.get_admin(uid)
+        if st.get('in_panel') or st.get('waiting_broadcast'):
+            await self.handle_admin_panel(uid, text)
+            return
+
+        # ─── أوامر المستخدم ───────────────────────────────────────────────
+        if text in ("0", "قائمة") or upper == "MENU":
+            await self.send_menu(uid)
+            return
+
+        if text in ("مساعدة", "help", "HELP"):
+            await self.send_welcome(uid)
+            return
+
+        if text in ("لغتي", "اعداداتي"):
+            await self.send_my_settings(uid)
+            return
+
+        # عكس اتجاه الترجمة
+        if text in ("عكس", "REVERSE", "FLIP"):
+            old_src_code = u.get('src_lang_code', 'auto')
+            old_src_name = u.get('src_lang_name', 'تلقائي')
+            old_dst_code = u.get('lang_code', 'ar')
+            old_dst_name = u.get('lang_name', 'العربية')
+            u['lang_code']      = old_src_code if old_src_code != 'auto' else 'ar'
+            u['lang_name']      = old_src_name if old_src_name != 'تلقائي' else 'العربية'
+            u['src_lang_code']  = old_dst_code
+            u['src_lang_name']  = old_dst_name
+            self.save_data()
+            await self.send(uid,
+                f"🔄 تم عكس الترجمة\n"
+                f"📤 من: {u['src_lang_name']}\n"
+                f"📥 إلى: {u['lang_name']}")
+            return
+
+        # تغيير لغة المصدر: من:رقم
+        if text.startswith("من:") or text.startswith("من :"):
+            num = text.split(":", 1)[1].strip()
+            clean = str(int(num)) if num.isdigit() else num
+            if clean in LANGUAGES_MAP:
+                sel = LANGUAGES_MAP[clean]
+                u['src_lang_code'] = sel['code']
+                u['src_lang_name'] = sel['name']
+                self.save_data()
+                await self.send(uid, f"✅ لغة المصدر: {sel['flag']} {sel['name']}")
+            elif num == "0":
+                u['src_lang_code'] = 'auto'
+                u['src_lang_name'] = 'تلقائي'
+                self.save_data()
+                await self.send(uid, "✅ لغة المصدر: تلقائي (كشف تلقائي)")
+            else:
+                await self.send(uid, "⚠️ رقم اللغة غير صحيح. أرسل [قائمة] لعرض الأرقام.")
+            return
+
+        # اختيار لغة الهدف بالرقم
+        if text.isdigit():
+            clean = str(int(text))
+            if clean in LANGUAGES_MAP:
+                sel = LANGUAGES_MAP[clean]
+                u['lang_code'] = sel['code']
+                u['lang_name'] = sel['name']
+                self.save_data()
+                await self.send(uid,
+                    f"✅ لغة الترجمة: {sel['flag']} {sel['name']}\n"
+                    "📝 أرسل أي نص الآن للترجمة.")
+            else:
+                await self.send(uid, "⚠️ الرقم خارج النطاق (1-30). أرسل [قائمة].")
+            return
+
+        # ─── الترجمة الرئيسية ─────────────────────────────────────────────
+        if len(text) < 2:
+            await self.send(uid, "⚠️ النص قصير جداً. أرسل جملة أو أكثر.")
+            return
+
+        src_code = u.get('src_lang_code', 'auto')
+        dst_code = u.get('lang_code', 'ar')
+        dst_name = u.get('lang_name', 'العربية')
+
+        # كشف اللغة تلقائياً
+        if src_code == 'auto':
+            detected = await self.detect_lang(text)
+        else:
+            detected = src_code
+
+        # تجنب ترجمة النص لنفس لغته
+        if detected == dst_code:
+            await self.send(uid,
+                f"ℹ️ النص بالفعل بلغة الهدف ({dst_name}).\n"
+                "غيّر اللغة أو استخدم [عكس].")
+            return
+
+        result = await self.translate(text, detected, dst_code)
+        if result:
+            u['count'] = u.get('count', 0) + 1
+            self.save_data()
+            src_label = detected.upper() if src_code == 'auto' else u.get('src_lang_name', '')
+            await self.send(uid,
+                f"✨ [{src_label} → {dst_name}]\n\n{result}")
+        else:
+            await self.send(uid,
+                "⚠️ تعذرت الترجمة. تأكد من النص أو جرب لغة مختلفة.")
+
+    # ── حلقة الاستطلاع ──────────────────────────────────────────────────────
+    async def fetch_latest(self) -> dict | None:
+        url = (f"https://graph.facebook.com/{VERSION}/me/conversations"
+               f"?fields=messages{{message,from,id}}"
+               f"&access_token={PAGE_ACCESS_TOKEN}")
+        try:
+            r = await self.client.get(url)
+            data = r.json()
+            for convo in data.get('data', []):
+                msgs = convo.get('messages', {}).get('data', [])
+                if msgs:
+                    m = msgs[0]
+                    if str(m['from']['id']) != str(PAGE_ID):
+                        return m
+        except Exception as e:
+            print(f"❌ fetch error: {e}")
+        return None
+
+    async def run(self):
+        print(f"{'═'*42}")
+        print(f"  {BOT_NAME} v2  |  ONLINE ✅")
+        print(f"{'═'*42}")
         while True:
-            latest_msg = await self.get_latest_messages()
-            if latest_msg:
-                asyncio.create_task(self.handle_user_request(latest_msg))
+            msg = await self.fetch_latest()
+            if msg:
+                asyncio.create_task(self.handle_message(msg))
             await asyncio.sleep(0.5)
 
-def start_bot_main():
-    bot = FacebookPollingBot()
-    asyncio.run(bot.process_logic())
+# ─── نقطة الدخول ────────────────────────────────────────────────────────────
+def start_bot():
+    asyncio.run(SwiftTranslateBot().run())
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
-    start_bot_main()
+    start_bot()
