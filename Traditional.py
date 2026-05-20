@@ -31,7 +31,7 @@ app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 class FaheemEngine:
     def __init__(self):
         # بناءً على طلبك: الرموز بقيت كود مدمج ولم يتم تحويلها لمتغيرات بيئية
-        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
+        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRnF3rEBGTfRitCTqBpWqfgYgtvbRGoOfnUydltWZBaIEeFO5mXzzPK9XLGwVaZA6NnOgji1435FuYxZCMIgHFry3Ki0Xkj05qZALlBSkTBtyqvitxURW0amm1uN2xZA7CcFq8TgmSz3u1kZBjiJEf723tWpipbBdOFgzgFZAkhSTCxsoVKLd9lYSuTM230TCAZDZD'
         self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
         self.MODEL_NAME = "mistral-large-latest"
         self.VERIFY_TOKEN = "idriss32"
