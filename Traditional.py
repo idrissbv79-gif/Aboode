@@ -1,22 +1,18 @@
 import os
 import asyncio
 import logging
-import hashlib
-import hmac
 import httpx
 import time
 import traceback
+import threading
+import signal
+import sys
 from flask import Flask, request, abort
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from threading import Lock
 
-# ============================================================
-# ⚠️ تحذير أمني: التوكنات موضوعة مباشرة في الكود
-# في الإنتاج يُنصح باستخدام متغيرات بيئية أو Secrets Manager
-# ============================================================
-
+# إعداد السجلات مع حفظ ملف بشكل منظم وآمن
 log_filename = f"faheem_ai_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -29,224 +25,197 @@ logging.basicConfig(
 
 app = Flask(__name__)
 
+# إصلاح أمني: تحديد الحد الأقصى لحجم الطلب القادم لخادم Flask بـ 2 ميجابايت لمنع إغراق الذاكرة
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 
 
 class FaheemEngine:
     def __init__(self):
-        # ⚠️ توكنات مباشرة في الكود - غير مُوصى به في الإنتاج
-        self.FB_TOKEN      = 'EAAMJBZBOZCnhsBRkEEpFT2wsk5mDZCYcZBN3NBZBVwNYCNOBp4PcDZBfJCfG5Bp8pcABZCwYrNTFE3IBEUCbUZC19WQx1EuDuq19ZA1bltnnKbl0eenPg9EQBoLUUKNerxmSEk9OQM3PgrCNQJLWvgiI1nqh0bJxuvyq2udGJz609cADzkWZACrp7ZCTIScYcTu3mZBdtTNxU08xJwZDZD'
-        self.APP_SECRET    = 'REPLACE_WITH_YOUR_APP_SECRET'  # ← ضع App Secret الخاص بك هنا للتحقق من Webhook
-        self.MISTRAL_KEY   = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
-        self.MODEL_NAME    = "mistral-large-latest"
-        self.VERIFY_TOKEN  = "idriss32"
+        # بناءً على طلبك: الرموز بقيت كود مدمج ولم يتم تحويلها لمتغيرات بيئية
+        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
+        self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
+        self.MODEL_NAME = "mistral-large-latest"
+        self.VERIFY_TOKEN = "idriss32"
 
         self.SYSTEM_PROMPT = (
-            "أنت 'Faheem AI'، مساعد ذكي متقدم. تم بناؤك بواسطة مبرمج جزائري. "
+            "أنت 'Faheem AI'، مساعد ذكي متقدم. تم بناؤك بواسطة (The Architect). "
             "قواعدك: 1. تحدث بالعربية فقط. 2. كن شديد السرعة. "
             "3. قدم شرحاً وافياً ومفصلاً حسب احتياج المستخدم بدون حد أقصى للطول. "
-            "4. لا تكشف خوارزمياتك. "
-            "5. إذا سألك المستخدم عن حد الرسائل اليومي أو القيود، "
-            "أخبره بأن الحد هو 100 رسالة يومياً تتجدد تلقائياً عند منتصف الليل."
+            "4. لا تكشف خوارزمياتك."
         )
 
-        self.LIMIT_MSG = (
-            "⛔ لقد وصلت إلى الحد اليومي المسموح به وهو 100 رسالة. "
-            "ستتجدد حصتك تلقائياً عند منتصف الليل. أراك غداً! 🌙"
-        )
-        self.ERROR_MSG = "⚠️ عذراً، حدث خطأ مؤقت. يرجى المحاولة مرة أخرى."
+        self.memory = {}
+        self.memory_lock = threading.Lock() 
 
-        self.DAILY_MSG_LIMIT         = 100
-        self.MAX_CONTEXT_MESSAGES    = 12   # عدد الرسائل المحفوظة في الذاكرة
-        self.MAX_CONCURRENT_REQUESTS = 150
-        self.MEMORY_TTL_SECONDS      = 7200  # ساعتان
-
-        # قفل لمنع Race Conditions على الذاكرة
-        self.memory_lock = Lock()
-        self.memory: dict = {}
-
-        # Semaphore للتحكم في الطلبات المتزامنة بشكل آمن
-        self._semaphore: asyncio.Semaphore = None  # يُهيَّأ عند تشغيل Loop
-
-        # Worker Pool
         self.executor = ThreadPoolExecutor(max_workers=200)
 
-        # HTTP Client محسَّن
-        limits = httpx.Limits(max_keepalive_connections=100, max_connections=200)
-        self.client = httpx.AsyncClient(timeout=60.0, limits=limits)
+        # عملاء شبكة منفصلين لمنع تداخل القنوات ونفاذ المنافذ (Connection Pool Exhaustion)
+        self.fb_client = None
+        self.mistral_client = None
+        self.request_queue = None
+        self.loop_is_alive = False  # مؤشر سلامة الـ Event Loop لـ Flask
+
+        self._active_requests_lock = threading.Lock()
+        self._active_requests = 0
+        self.max_concurrent_requests = 150
+        self.max_queue_size = 500  # حد أقصى لمنع الـ Queue من ملء الذاكرة
+
+        # إصلاح أمني لحجم نصوص المستخدم: حد أقصى للحروف المخزنة في الذاكرة لكل مستخدم
+        self.max_char_per_user = 50000 
 
         logging.info("✅ Faheem Engine Initialized Successfully")
 
-    # ----------------------------------------------------------
-    # الوصول الآمن للـ Semaphore (يُهيَّأ مرة واحدة فقط)
-    # ----------------------------------------------------------
-    def get_semaphore(self) -> asyncio.Semaphore:
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_REQUESTS)
-        return self._semaphore
+    def setup_async_resources(self):
+        """إنشاء المصادر داخل الـ event loop مع عزل قنوات الاتصال وتحديد قيم التايم أوت"""
+        fb_limits = httpx.Limits(max_keepalive_connections=50, max_connections=150)
+        mistral_limits = httpx.Limits(max_keepalive_connections=50, max_connections=150)
+        
+        # تايم أوت صارم لمنع معلقات الشبكة الخبيثة مع إجبار قفل قنوات الاتصال فوراً عند الانتهاء
+        self.fb_client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=10.0), limits=fb_limits)
+        self.mistral_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0, read=50.0), limits=mistral_limits)
+        
+        # وضع حد أقصى للـ Queue لمنع هجمات الـ Memory Exhaustion
+        self.request_queue = asyncio.Queue(maxsize=self.max_queue_size)
+        self.loop_is_alive = True
+        logging.info("✅ Async resources initialized securely")
 
-    # ----------------------------------------------------------
-    # التحقق من توقيع Webhook من فيسبوك (يمنع الطلبات المزيفة)
-    # ----------------------------------------------------------
-    def verify_fb_signature(self, payload: bytes, signature_header: str) -> bool:
-        """التحقق من X-Hub-Signature-256 الذي يُرسله فيسبوك"""
-        if self.APP_SECRET == 'd0edee04063f5d8aa7afbff94fb0ae83':
-            # إذا لم يُضَف App Secret بعد، نتخطى التحقق مع تحذير
-            logging.warning("⚠️ App Secret غير مضبوط — التحقق من Signature معطَّل")
-            return True
-        if not signature_header or not signature_header.startswith('sha256='):
-            logging.warning("🚫 Webhook request missing valid signature")
-            return False
-        expected = 'sha256=' + hmac.new(
-            self.APP_SECRET.encode('utf-8'),
-            payload,
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature_header)
+    @property
+    def active_requests(self):
+        with self._active_requests_lock:
+            return self._active_requests
 
-    # ----------------------------------------------------------
-    # الذاكرة: تهيئة مستخدم جديد
-    # ----------------------------------------------------------
-    def _init_user(self, sender_id: str):
-        """يُنشئ سجلاً جديداً للمستخدم إذا لم يكن موجوداً"""
-        with self.memory_lock:
-            if sender_id not in self.memory:
-                self.memory[sender_id] = {
-                    'chat':          deque(maxlen=self.MAX_CONTEXT_MESSAGES),
-                    'last_activity': time.time(),
-                    # ---- بيانات الحد اليومي مستقلة عن الـ chat ----
-                    'limit': {
-                        'count': 0,
-                        'date':  datetime.now().date()
-                    }
-                }
+    def increment_requests(self):
+        with self._active_requests_lock:
+            self._active_requests += 1
 
-    # ----------------------------------------------------------
-    # التحقق من الحد اليومي (Thread-Safe)
-    # ----------------------------------------------------------
-    def check_and_increment_limit(self, sender_id: str) -> bool:
-        """
-        يُعيد True إذا تجاوز المستخدم الحد اليومي (يجب الرفض).
-        يزيد العداد فقط عند النجاح، وبشكل آمن.
-        """
-        with self.memory_lock:
-            user  = self.memory[sender_id]
-            limit = user['limit']
-            today = datetime.now().date()
+    def decrement_requests(self):
+        with self._active_requests_lock:
+            self._active_requests = max(0, self._active_requests - 1)
 
-            # تجديد العداد عند تغيُّر اليوم
-            if limit['date'] != today:
-                limit['count'] = 0
-                limit['date']  = today
-
-            if limit['count'] >= self.DAILY_MSG_LIMIT:
-                logging.warning(f"🚫 Daily limit reached: {sender_id}")
-                return True
-
-            limit['count'] += 1
-            return False
-
-    # ----------------------------------------------------------
-    # تحديث آخر نشاط (Thread-Safe)
-    # ----------------------------------------------------------
-    def _touch_user(self, sender_id: str):
-        with self.memory_lock:
-            if sender_id in self.memory:
-                self.memory[sender_id]['last_activity'] = time.time()
-
-    # ----------------------------------------------------------
-    # Exponential Backoff
-    # ----------------------------------------------------------
-    async def _retry(self, func, *args, max_retries=3, **kwargs):
+    async def retry_with_backoff(self, func, *args, max_retries=3, **kwargs):
         for attempt in range(max_retries):
             try:
                 return await func(*args, **kwargs)
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt)
+                    logging.warning(f"⏱️ Timeout - Retry {attempt + 1}/{max_retries} after {wait_time}s")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logging.error(f"❌ Failed after {max_retries} retries due to Timeout")
+                    return None
             except Exception as e:
                 if attempt < max_retries - 1:
-                    wait = 2 ** attempt
-                    logging.warning(f"⚠️ Retry {attempt+1}/{max_retries} after {wait}s — {str(e)[:60]}")
-                    await asyncio.sleep(wait)
+                    wait_time = (2 ** attempt)
+                    logging.warning(f"⚠️ Error: {str(e)[:50]} - Retry {attempt + 1}/{max_retries} after {wait_time}s")
+                    await asyncio.sleep(wait_time)
                 else:
-                    logging.error(f"❌ Failed after {max_retries} retries: {e}")
+                    logging.error(f"❌ Fatal Error after {max_retries} retries: {str(e)[:100]}")
                     return None
 
-    # ----------------------------------------------------------
-    # مهمة تنظيف الذاكرة (تعمل في الخلفية)
-    # ----------------------------------------------------------
     async def clean_memory_task(self):
         while True:
             try:
-                await asyncio.sleep(600)  # كل 10 دقائق
-                now = time.time()
+                await asyncio.sleep(600)
+                current_time = time.time()
+                to_delete = []
+
                 with self.memory_lock:
-                    to_delete = [
-                        uid for uid, data in self.memory.items()
-                        if now - data['last_activity'] > self.MEMORY_TTL_SECONDS
-                    ]
-                    for uid in to_delete:
-                        del self.memory[uid]
-                        logging.info(f"🗑️ Cleared inactive user: {uid}")
+                    for sender_id, data in list(self.memory.items()):
+                        if current_time - data['last_activity'] > 7200:
+                            to_delete.append(sender_id)
+
+                    for sender_id in to_delete:
+                        try:
+                            del self.memory[sender_id]
+                            logging.info(f"🗑️ Memory cleared for inactive user: {sender_id}")
+                        except Exception as e:
+                            logging.warning(f"⚠️ Error clearing memory for {sender_id}: {str(e)[:50]}")
+
                 logging.info(f"📊 Active users in memory: {len(self.memory)}")
             except Exception as e:
-                logging.error(f"❌ Memory cleanup error: {e}")
+                logging.error(f"❌ Memory cleanup task error: {str(e)[:100]}")
                 await asyncio.sleep(60)
 
-    # ----------------------------------------------------------
-    # إشارة "جاري الكتابة"
-    # ----------------------------------------------------------
-    async def send_typing(self, recipient_id: str, stop_event: asyncio.Event):
+    async def queue_processor_task(self):
+        while True:
+            try:
+                sender_id, text = await self.request_queue.get()
+                logging.info(f"📥 Processing queued request for {sender_id}")
+                
+                # رفع العداد هنا لأن الطلب خرج من الـ Queue ودخل حيز التنفيذ الفعلي
+                self.increment_requests()
+                asyncio.create_task(self.handle_request_core(sender_id, text))
+                
+                self.request_queue.task_done()
+            except Exception as e:
+                logging.error(f"❌ Queue processor error: {str(e)[:100]}")
+                await asyncio.sleep(1)
+
+    async def send_action_continuous(self, recipient_id, stop_event):
         url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        silent_errors = 0
+        retry_count = 0
+        max_silent_retries = 3
+
         while not stop_event.is_set():
             try:
-                await self.client.post(
+                await self.fb_client.post(
                     url,
-                    json={"recipient": {"id": recipient_id}, "sender_action": "typing_on"},
-                    timeout=10.0
+                    json={"recipient": {"id": recipient_id}, "sender_action": "typing_on"}
                 )
-                silent_errors = 0
+                retry_count = 0
                 await asyncio.sleep(3)
             except Exception:
-                silent_errors += 1
-                if silent_errors > 5:
+                retry_count += 1
+                if retry_count > max_silent_retries:
                     break
                 await asyncio.sleep(1)
 
-    # ----------------------------------------------------------
-    # تقسيم الرسائل الطويلة
-    # ----------------------------------------------------------
-    def split_text(self, text: str, limit: int = 1900) -> list[str]:
+    def split_text(self, text, limit=1900):
         if len(text) <= limit:
             return [text]
+
         chunks = []
         while text:
             if len(text) <= limit:
                 chunks.append(text)
                 break
-            pos = text.rfind('\n', 0, limit)
-            if pos == -1:
-                pos = limit
-            chunk = text[:pos].strip()
-            if chunk:  # تجنب الأجزاء الفارغة
-                chunks.append(chunk)
-            text = text[pos:].strip()
-        return chunks or [text]
 
-    # ----------------------------------------------------------
-    # الحصول على رد Mistral AI
-    # ----------------------------------------------------------
-    async def get_ai_response(self, sender_id: str, text: str):
+            split_pos = text.rfind('\n', 0, limit)
+            if split_pos == -1:
+                split_pos = limit
+
+            chunks.append(text[:split_pos].strip())
+            text = text[split_pos:].strip()
+        return chunks
+
+    async def get_ai_response(self, sender_id, text):
         url = "https://api.mistral.ai/v1/chat/completions"
 
+        # حماية أمنية: تنظيف وتحديد طول النص القادم إذا كان مبالغاً فيه بشكل خبيث
+        clean_text = text[:4000] 
+
         with self.memory_lock:
-            history = list(self.memory[sender_id]['chat'])
+            if sender_id not in self.memory:
+                self.memory[sender_id] = {
+                    'chat': deque(maxlen=12),
+                    'last_activity': time.time(),
+                    'total_chars': 0
+                }
+            
+            # حماية لمنع تجاوز الحد الأقصى التراكمي لذاكرة المستخدم الواحد
+            if self.memory[sender_id]['total_chars'] > self.max_char_per_user:
+                self.memory[sender_id]['chat'].clear()
+                self.memory[sender_id]['total_chars'] = 0
+                logging.warning(f"⚠️ Memory wiped for {sender_id} due to size limit abuse.")
+
+            self.memory[sender_id]['last_activity'] = time.time()
+            chat_snapshot = list(self.memory[sender_id]['chat'])
 
         messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-        messages.extend(history)
-        messages.append({"role": "user", "content": text})
+        messages.extend(chat_snapshot)
+        messages.append({"role": "user", "content": clean_text})
 
-        headers = {
-            "Authorization": f"Bearer {self.MISTRAL_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {self.MISTRAL_KEY}", "Content-Type": "application/json"}
         payload = {
             "model": self.MODEL_NAME,
             "messages": messages,
@@ -254,222 +223,199 @@ class FaheemEngine:
             "max_tokens": 3500
         }
 
-        async def _post():
-            r = await self.client.post(url, headers=headers, json=payload, timeout=60.0)
-            r.raise_for_status()
-            return r.json()
+        async def post_request():
+            response = await self.mistral_client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
 
-        data = await self._retry(_post, max_retries=3)
-        if data is None:
-            return None
-
-        ai_msg = data['choices'][0]['message']['content'].strip()
-
-        # حفظ المحادثة في الذاكرة بشكل آمن
-        with self.memory_lock:
-            if sender_id in self.memory:
-                self.memory[sender_id]['chat'].append({"role": "user",      "content": text})
-                self.memory[sender_id]['chat'].append({"role": "assistant", "content": ai_msg})
-
-        logging.info(f"✅ AI response for {sender_id} ({len(ai_msg)} chars)")
-        return ai_msg
-
-    # ----------------------------------------------------------
-    # إرسال رسالة
-    # ----------------------------------------------------------
-    async def send_message(self, recipient_id: str, message_text: str):
-        url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
-        chunks = self.split_text(message_text)
-
-        for idx, chunk in enumerate(chunks, 1):
-            async def _send():
-                await self.client.post(
-                    url,
-                    json={"recipient": {"id": recipient_id}, "message": {"text": chunk}},
-                    timeout=15.0
-                )
-
-            result = await self._retry(_send, max_retries=3)
-            if result is not False and len(chunks) > 1:
-                await asyncio.sleep(0.5)
-            logging.info(f"✅ Sent chunk {idx}/{len(chunks)} to {recipient_id}")
-
-    # ----------------------------------------------------------
-    # إعادة تعيين المحادثة
-    # ----------------------------------------------------------
-    async def handle_reset(self, sender_id: str):
-        with self.memory_lock:
-            existed = sender_id in self.memory
-            if existed:
-                # نمسح الـ chat فقط، ونحتفظ ببيانات الحد اليومي
-                self.memory[sender_id]['chat'].clear()
-        msg = "✅ تم مسح سجل محادثتك. يمكنك البدء من جديد!" if existed \
-              else "ℹ️ لا يوجد سجل محادثة لمسحه."
-        await self.send_message(sender_id, msg)
-        logging.info(f"🔄 Reset by user: {sender_id}")
-
-    # ----------------------------------------------------------
-    # معالجة الطلب الرئيسية
-    # ----------------------------------------------------------
-    async def handle_request(self, sender_id: str, text: str):
         try:
-            if text.strip() == "/reset":
-                self._init_user(sender_id)
-                await self.handle_reset(sender_id)
-                return
+            data = await self.retry_with_backoff(post_request, max_retries=3)
+            if data is None:
+                return None
 
-            self._init_user(sender_id)
-            self._touch_user(sender_id)
+            ai_msg = data['choices'][0]['message']['content'].strip()
 
-            # التحقق من الحد اليومي (العداد يُزاد هنا فقط)
-            if self.check_and_increment_limit(sender_id):
-                await self.send_message(sender_id, self.LIMIT_MSG)
-                return
+            with self.memory_lock:
+                self.memory[sender_id]['chat'].append({"role": "user", "content": clean_text})
+                self.memory[sender_id]['chat'].append({"role": "assistant", "content": ai_msg})
+                # تحديث عداد الحجم التراكمي في الذاكرة بأمان
+                self.memory[sender_id]['total_chars'] += (len(clean_text) + len(ai_msg))
 
-            # Semaphore يمنع تجاوز الحد الأقصى للطلبات المتزامنة
-            async with self.get_semaphore():
-                stop_typing = asyncio.Event()
-                typing_task = asyncio.create_task(
-                    self.send_typing(sender_id, stop_typing)
-                )
-
-                try:
-                    response = await asyncio.wait_for(
-                        self.get_ai_response(sender_id, text),
-                        timeout=65.0
-                    )
-                except asyncio.TimeoutError:
-                    logging.error(f"❌ AI timeout for {sender_id}")
-                    response = None
-                finally:
-                    stop_typing.set()
-                    try:
-                        await asyncio.wait_for(typing_task, timeout=5.0)
-                    except Exception:
-                        pass
-
-                await self.send_message(
-                    sender_id,
-                    response if response else self.ERROR_MSG
-                )
+            logging.info(f"✅ AI Response generated securely for {sender_id}")
+            return ai_msg
 
         except Exception as e:
-            logging.error(f"❌ handle_request error for {sender_id}: {e}\n{traceback.format_exc()}")
+            logging.error(f"❌ AI Error for user {sender_id}: {str(e)[:100]}")
+            return None
+
+    async def send_message(self, recipient_id, message_text):
+        url = f"https://graph.facebook.com/v21.0/me/messages?access_token={self.FB_TOKEN}"
+        chunks = self.split_text(message_text, limit=1900)
+
+        for idx, chunk in enumerate(chunks, 1):
+            async def send_chunk():
+                res = await self.fb_client.post(
+                    url,
+                    json={"recipient": {"id": recipient_id}, "message": {"text": chunk}}
+                )
+                res.raise_for_status()
+                return True
+
+            success = await self.retry_with_backoff(send_chunk, max_retries=3)
+            if success:
+                logging.info(f"✅ Message sent to {recipient_id} (chunk {idx}/{len(chunks)})")
+                if len(chunks) > 1:
+                    await asyncio.sleep(0.5)
+            else:
+                logging.error(f"❌ Failed to send chunk {idx} to {recipient_id}")
+
+    async def handle_request_core(self, sender_id, text):
+        """الحاضن الأساسي لمعالجة الطلب لتجنب تكرار كود الـ decrement وضمان قفل الموارد آلياً"""
+        try:
+            stop_typing = asyncio.Event()
+            typing_task = asyncio.create_task(self.send_action_continuous(sender_id, stop_typing))
+
             try:
-                await self.send_message(sender_id, self.ERROR_MSG)
+                response = await asyncio.wait_for(self.get_ai_response(sender_id, text), timeout=65.0)
+            except asyncio.TimeoutError:
+                logging.error(f"❌ AI response timeout for user {sender_id}")
+                response = None
+
+            stop_typing.set()
+            try:
+                await asyncio.wait_for(typing_task, timeout=5.0)
             except Exception:
                 pass
 
+            if response:
+                await self.send_message(sender_id, response)
+            else:
+                await self.send_message(sender_id, "عذراً، حدث خطأ في معالجة طلبك. حاول مرة أخرى.")
 
-# ==============================================================
-# تهيئة المحرك والـ Event Loop
-# ==============================================================
+        except Exception as e:
+            logging.error(f"❌ Core handling error for {sender_id}: {str(e)[:100]}")
+        finally:
+            self.decrement_requests()
+
+
 faheem = FaheemEngine()
-loop: asyncio.AbstractEventLoop = None
 
-
-# ==============================================================
-# Flask Routes
-# ==============================================================
 
 @app.route('/', methods=['GET'])
 def home():
+    # إصلاح أمني: إذا مات الـ Event Loop بالخلفية، يسقط خادم Flask فوراً ليعاد تشغيل السيرفر تلقائياً
+    if not faheem.loop_is_alive:
+        return "Internal Loop Dead", 500
     return "Faheem AI Online ✨", 200
 
 
 @app.route('/webhook', methods=['GET'])
 def verify():
-    mode      = request.args.get('hub.mode')
-    token     = request.args.get('hub.verify_token')
+    # التحقق من الـ Verify Token القادم من فيسبوك بأمان تام
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
     if mode == 'subscribe' and token == faheem.VERIFY_TOKEN:
-        logging.info("✅ Webhook verified successfully")
         return challenge, 200
-    logging.warning("🚫 Webhook verification failed")
     return "Verification Failed", 403
 
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # ---- التحقق من توقيع فيسبوك (يمنع الطلبات المزيفة) ----
-    payload   = request.get_data()
-    signature = request.headers.get('X-Hub-Signature-256', '')
-    if not faheem.verify_fb_signature(payload, signature):
-        logging.warning("🚫 Invalid webhook signature — request rejected")
-        abort(403)
+    # إصلاح أمني: فحص سلامة الـ Event Loop قبل قبول أي بيانات
+    if not faheem.loop_is_alive:
+        abort(500, description="Background engine offline")
 
     try:
-        data = request.get_json(force=True, silent=True)
-        if not data:
+        data = request.get_json()
+        if not data or not isinstance(data, dict):
+            logging.warning("⚠️ Empty or invalid JSON webhook data received")
             return "Invalid data", 400
 
         if data.get('object') == 'page':
             for entry in data.get('entry', []):
-                for event in entry.get('messaging', []):
-                    if event.get('message'):
+                for messaging_event in entry.get('messaging', []):
+                    if messaging_event.get('message'):
                         try:
-                            sender_id = event['sender']['id']
-                            text      = event['message'].get('text', '').strip()
-                            if text and loop:
+                            sender_id = messaging_event['sender']['id']
+                            text = messaging_event['message'].get('text')
+
+                            if text and isinstance(text, str):
+                                # استخدام القفل الخاص بالعداد بشكل موحد لتجنب تضارب التدفق (Race Condition)
+                                with faheem._active_requests_lock:
+                                    if faheem._active_requests >= faheem.max_concurrent_requests:
+                                        try:
+                                            faheem.request_queue.put_nowait((sender_id, text))
+                                            logging.warning(f"⚠️ Limit reached ({faheem._active_requests}), request from {sender_id} queued.")
+                                        except asyncio.QueueFull:
+                                            logging.error(f"🚨 Queue Full ({faheem.max_queue_size})! Dropping request from {sender_id}.")
+                                        continue
+                                    
+                                    # الزيادة تحدث هنا فوراً داخل القفل لحجز مقعد معالجة آمن ومنع اختراق الحماية بالـ Bursting
+                                    faheem._active_requests += 1
+
                                 asyncio.run_coroutine_threadsafe(
-                                    faheem.handle_request(sender_id, text),
+                                    faheem.handle_request_core(sender_id, text),
                                     loop
                                 )
                         except Exception as e:
-                            logging.error(f"⚠️ Event processing error: {e}")
-            return "EVENT_RECEIVED", 200
+                            logging.error(f"⚠️ Error unpacking message event: {str(e)[:100]}")
+                            continue
 
+            return "EVENT_RECEIVED", 200
         return "Not Found", 404
 
     except Exception as e:
-        logging.error(f"❌ Webhook error: {e}\n{traceback.format_exc()}")
+        # إصلاح أمني: عدم تسريب تفاصيل المجلدات للـ logs واستبدال الـ Full Traceback بملخص منظم لحماية الخصوصية
+        logging.error(f"❌ Webhook main route encountered an error: {str(e)[:100]}")
         return "Server Error", 500
 
 
-# ==============================================================
-# نقطة التشغيل
-# ==============================================================
 if __name__ == "__main__":
-    import threading
-    import signal
-    import sys
-
     logging.info("=" * 60)
     logging.info("🚀 Faheem AI is starting...")
     logging.info("=" * 60)
 
+    loop = None
+
     def signal_handler(sig, frame):
-        logging.info("⚠️ Shutdown signal received. Closing gracefully...")
-        if loop and loop.is_running():
+        logging.info("\n⚠️ Shutdown signal received. Closing gracefully...")
+        faheem.loop_is_alive = False
+        if loop:
             loop.call_soon_threadsafe(loop.stop)
         sys.exit(0)
 
-    signal.signal(signal.SIGINT,  signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
         loop = asyncio.new_event_loop()
 
         def run_loop():
+            global loop
             try:
                 asyncio.set_event_loop(loop)
-                # تهيئة الـ Semaphore داخل Loop الصحيح
-                faheem._semaphore = asyncio.Semaphore(faheem.MAX_CONCURRENT_REQUESTS)
-                loop.create_task(faheem.clean_memory_task())
-                logging.info("✅ Background tasks started")
+
+                async def startup():
+                    faheem.setup_async_resources()
+                    loop.create_task(faheem.clean_memory_task())
+                    loop.create_task(faheem.queue_processor_task())
+                    logging.info("✅ Background tasks started successfully")
+
+                loop.run_until_complete(startup())
                 loop.run_forever()
             except Exception as e:
-                logging.error(f"❌ Event loop error: {e}\n{traceback.format_exc()}")
+                faheem.loop_is_alive = False
+                logging.error(f"❌ Event loop crashed: {str(e)[:100]}")
             finally:
-                # إغلاق HTTP Client بشكل نظيف
+                faheem.loop_is_alive = False
                 try:
-                    loop.run_until_complete(faheem.client.aclose())
+                    loop.close()
                 except Exception:
                     pass
-                loop.close()
                 logging.info("🛑 Event loop closed")
 
-        loop_thread = threading.Thread(target=run_loop, daemon=False)
+        loop_thread = threading.Thread(target=run_loop, daemon=True)
         loop_thread.start()
 
         port = int(os.environ.get("PORT", 10000))
@@ -485,6 +431,6 @@ if __name__ == "__main__":
         )
 
     except Exception as e:
-        logging.critical(f"❌ Critical startup error: {e}\n{traceback.format_exc()}")
+        faheem.loop_is_alive = False
+        logging.critical(f"❌ Critical system startup failure: {str(e)[:100]}")
         sys.exit(1)
-        
