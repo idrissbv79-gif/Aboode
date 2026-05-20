@@ -25,7 +25,7 @@ app = Flask(__name__)
 
 class FaheemEngine:
     def __init__(self):
-        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRYd4aDVkLHp26nCivUkZBjtPQsqm18ufOx7WrxPxi4bwQPwABVFyezIM40Tju8LiuJuhWdM3Ex9lotYtXE6sAvXlmV6safsnFDKysuZCTBMl83YHZBH7GWzNYVnaQlze6ZBoIsfdjN1B49ZCpZA4HX2zeGePBoV0RsU0c7rNpv01wsx7UZCBnTWrJZBl4wZDZD'
+        self.FB_TOKEN = 'EAAMJBZBOZCnhsBRkEEpFT2wsk5mDZCYcZBN3NBZBVwNYCNOBp4PcDZBfJCfG5Bp8pcABZCwYrNTFE3IBEUCbUZC19WQx1EuDuq19ZA1bltnnKbl0eenPg9EQBoLUUKNerxmSEk9OQM3PgrCNQJLWvgiI1nqh0bJxuvyq2udGJz609cADzkWZACrp7ZCTIScYcTu3mZBdtTNxU08xJwZDZD'
         self.MISTRAL_KEY = 'u3CQpwOi1DKu9WOuhvOxAZBNcgk6FDIT'
         self.MODEL_NAME = "mistral-large-latest"
         self.VERIFY_TOKEN = "idriss32"
