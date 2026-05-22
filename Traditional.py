@@ -26,10 +26,10 @@ async def init_db():
         await conn.execute("CREATE TABLE IF NOT EXISTS processing (user_id INTEGER PRIMARY KEY, started_at INTEGER)")
         await conn.commit()
 
-# تهيئة تطبيق Quart المتزامن (البديل السريع جداً لـ Flask)
+# تهيئة تطبيق Quart
 app = Quart(__name__)
 
-# استخدام جلسة اتصال موحدة (Connection Pool) لرفع الكفاءة لقصوى
+# استخدام جلسة اتصال موحدة (Connection Pool) لرفع الكفاءة القصوى
 async_session = None
 
 @app.before_serving
@@ -40,7 +40,9 @@ async def startup():
 
 @app.after_serving
 async def shutdown():
-    await async_session.close()
+    global async_session
+    if async_session:
+        await async_session.close()
 
 # --- دالة إرسال الطلبات إلى تليجرام بشكل غير متزامن ---
 async def ze(method, datas=None):
@@ -49,8 +51,9 @@ async def ze(method, datas=None):
         datas = {}
     url = f"https://api.telegram.org/bot{z1}/{method}"
     try:
-        async with async_session.post(url, data=datas, timeout=30) as response:
-            return await response.json()
+        if async_session:
+            async with async_session.post(url, data=datas, timeout=30) as response:
+                return await response.json()
     except Exception as e:
         logging.error(f"Telegram API Error ({method}): {e}")
         return {}
@@ -90,7 +93,7 @@ async def zec(uid, act='check'):
             
         return True
 
-# --- دالة معالجة التحديثات القادمة من تليجرام (نظام التكليفات الخفيفة) ---
+# --- دالة معالجة التحديثات القادمة من تليجرام ---
 async def handle_telegram_update(zupd):
     global z2, z3, z5, async_session
     if not zupd:
@@ -299,14 +302,21 @@ async def handle_telegram_update(zupd):
         
         zpdata = {'text': ztx, 'model': zapim, 'ratio': zratio, 'res': zresol}
         try:
-            async with async_session.post(z3, data=zpdata, timeout=120) as resp_curl:
-                zresp = await resp_curl.text()
-                zhttp = resp_curl.status
+            if async_session:
+                async with async_session.post(z3, data=zpdata, timeout=120) as resp_curl:
+                    zresp = await resp_curl.text()
+                    zhttp = resp_curl.status
+            else:
+                zresp, zhttp = None, 0
         except:
             zresp, zhttp = None, 0
             
         stop_action.set()
-        action_task.cancel()
+        try:
+            action_task.cancel()
+            await action_task
+        except asyncio.CancelledError:
+            pass
         
         if zstid: await ze('deleteMessage', {'chat_id': zch, 'message_id': zstid})
             
@@ -353,14 +363,21 @@ async def handle_telegram_update(zupd):
         
         zpdata = {'text': ztx, 'model': zapim, 'links': zcur['image'], 'ratio': zratio, 'res': zresol}
         try:
-            async with async_session.post(z3, data=zpdata, timeout=120) as resp_curl:
-                zresp = await resp_curl.text()
-                zhttp = resp_curl.status
+            if async_session:
+                async with async_session.post(z3, data=zpdata, timeout=120) as resp_curl:
+                    zresp = await resp_curl.text()
+                    zhttp = resp_curl.status
+            else:
+                zresp, zhttp = None, 0
         except:
             zresp, zhttp = None, 0
             
         stop_action.set()
-        action_task.cancel()
+        try:
+            action_task.cancel()
+            await action_task
+        except asyncio.CancelledError:
+            pass
         
         if zstid: await ze('deleteMessage', {'chat_id': zch, 'message_id': zstid})
             
@@ -384,7 +401,7 @@ async def handle_telegram_update(zupd):
             await ze('sendMessage', {'chat_id': zch, 'text': "<b>مرحباً يا صديقي، يرجى تشغيل البوت والبدء في استكشاف الميزات المتوفرة</b>", 'parse_mode': 'HTML', 'reply_markup': json.dumps({'inline_keyboard': [[{'text': '• تشغيل •', 'callback_data': 'back'}]]})})
         return
 
-# --- مسارات Quart للـ Webhook السحابي فائق السرعة ---
+# --- مسارات Quart للـ Webhook السحابي ---
 
 @app.route('/')
 async def index():
@@ -394,13 +411,10 @@ async def index():
 async def telegram_webhook():
     update = await request.get_json()
     if update:
-        # هنا السحر: نقوم بإنشاء Task خفيفة جداً تستهلك 2 كيلوبايت فقط بدلاً من خيط يستهلك 8 ميجابايت.
-        # هذا يسمح للبوت بفتح أكثر من 100,000 مهمة متزامنة بدون استهلاك موارد الخادم.
         asyncio.create_task(handle_telegram_update(update))
     return jsonify({'status': 'success'}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # تشغيل خادم Uvicorn/Hypercorn المتزامن تلقائياً عبر Quart
     app.run(host='0.0.0.0', port=port)
-    
+            
