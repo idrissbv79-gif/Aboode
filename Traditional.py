@@ -8,7 +8,7 @@ import aiohttp
 import aiosqlite
 from quart import Quart, request, jsonify
 
-# إعدادات تسجيل الأخطاء المتقدمة
+# إعدادات تسجيل الأخطاء
 logging.basicConfig(filename='error_log.txt', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- المتغيرات الأساسية ---
@@ -16,7 +16,7 @@ z1 = '8798290585:AAFCcecMtoYjVNnQi-tzHG-o5sBiD3nxSU4'  # توكن البوت ا�
 z2 = 'https://t.me/Z_O_Z_0o0/36'  # رابط الصورة الشخصية للبوت
 z3 = 'https://zecora0.serv00.net/ai/NanoBanana.php'  # رابط الـ API
 
-# مسار قاعدة البيانات الآمن
+# مسار قاعدة البيانات المؤقتة على سيرفر Render
 z5 = os.path.join('/tmp', 'duplicate_cache.db')
 
 # تهيئة قاعدة البيانات بشكل غير متزامن
@@ -26,10 +26,10 @@ async def init_db():
         await conn.execute("CREATE TABLE IF NOT EXISTS processing (user_id INTEGER PRIMARY KEY, started_at INTEGER)")
         await conn.commit()
 
-# تهيئة تطبيق Quart
+# تهيئة تطبيق Quart للويب هوك
 app = Quart(__name__)
 
-# استخدام جلسة اتصال موحدة (Connection Pool) لرفع الكفاءة القصوى
+# جلسة اتصال موحدة لتسريع الطلبات
 async_session = None
 
 @app.before_serving
@@ -44,7 +44,7 @@ async def shutdown():
     if async_session:
         await async_session.close()
 
-# --- دالة إرسال الطلبات إلى تليجرام بشكل غير متزامن ---
+# --- دالة إرسال الطلبات إلى تليجرام ---
 async def ze(method, datas=None):
     global z1, async_session
     if datas is None:
@@ -58,7 +58,7 @@ async def ze(method, datas=None):
         logging.error(f"Telegram API Error ({method}): {e}")
         return {}
 
-# --- دالة إرسال إشعار الرفع المستمر (Async) ---
+# --- دالة إرسال إشعار الرفع المستمر (جاري التحميل...) ---
 async def keep_sending_action(chat_id, stop_event):
     while not stop_event.is_set():
         await ze('sendChatAction', {'chat_id': chat_id, 'action': 'upload_photo'})
@@ -67,11 +67,10 @@ async def keep_sending_action(chat_id, stop_event):
         except asyncio.CancelledError:
             break
 
-# --- دالة التحكم في قفل المستخدمين (Async لمنع قفل قاعدة البيانات) ---
+# --- دالة التحكم في قفل التكرار للمستخدمين ---
 async def zec(uid, act='check'):
     now = int(time.time())
     async with aiosqlite.connect(z5) as conn:
-        # تنظيف تلقائي سريع
         await conn.execute("DELETE FROM processing WHERE started_at < ?", (now - 300,))
         await conn.commit()
         
@@ -93,7 +92,7 @@ async def zec(uid, act='check'):
             
         return True
 
-# --- دالة معالجة التحديثات القادمة من تليجرام ---
+# --- معالجة البيانات القادمة من التليجرام ---
 async def handle_telegram_update(zupd):
     global z2, z3, z5, async_session
     if not zupd:
@@ -173,7 +172,7 @@ async def handle_telegram_update(zupd):
     if ztx == "/start":
         if os.path.exists(zstf):
             os.remove(zstf)
-        zcap = "<b>مرحباً، أنا نانو بنانا (NanoBanana) <tg-emoji emoji-id=\"6003660622431001221\">👋</tg-emoji></b>\n<b>أقدم حلول ذكاء اصطناعي متطورة بأعلى معايير الجودة. <tg-emoji emoji-id=\"6003330781827570462\">👀</tg-emoji></b>\n<b>القيود والسلوك <tg-emoji emoji-id=\"6001423434096057208\">🤬</tg-emoji> :</b>\n<blockquote>• القيود: لا يُسمح بانتهاك الحقوق أو المواد المحمية.\n• قد تتطلب بعض الطلبات الدقيقة عدة محاولات وتعديلات للوصول للنتيجة المطلوبة.</blockquote>"
+        zcap = "<b>مرحباً، أنا نانو بنانا (NanoBanana) 👋</b>\n<b>أقدم حلول ذكاء اصطناعي متطورة بأعلى معايير الجودة. 👀</b>\n<b>القيود والسلوك 🤬 :</b>\n<blockquote>• القيود: لا يُسمح بانتهاك الحقوق أو المواد المحمية.\n• قد تتطلب بعض الطلبات الدقيقة عدة محاولات وتعديلات للوصول للنتيجة المطلوبة.</blockquote>"
         reply_markup = {
             'inline_keyboard': [[
                 {'text': '• إنشاء صورة •', 'callback_data': 'create_image'},
@@ -200,7 +199,7 @@ async def handle_telegram_update(zupd):
                 {'text': '• تعديل صورة •', 'callback_data': 'edit_image'}
             ]]
         }
-        await ze('sendPhoto', {'chat_id': zch, 'photo': z2, 'caption': "<b>مرحباً، أنا نانو بنانا (NanoBanana) <tg-emoji emoji-id=\"6003660622431001221\">👋</tg-emoji></b>\n<b>أقدم حلول ذكاء اصطناعي متطورة بأعلى معايير الجودة.</b>", 'parse_mode': 'HTML', 'reply_markup': json.dumps(reply_markup)})
+        await ze('sendPhoto', {'chat_id': zch, 'photo': z2, 'caption': "<b>مرحباً، أنا نانو بنانا (NanoBanana) 👋</b>\n<b>أقدم حلول ذكاء اصطناعي متطورة بأعلى معايير الجودة.</b>", 'parse_mode': 'HTML', 'reply_markup': json.dumps(reply_markup)})
         return
 
     if zda in ['create_image', 'edit_image']:
@@ -286,7 +285,7 @@ async def handle_telegram_update(zupd):
         await ze('editMessageCaption', {'chat_id': zch, 'message_id': zmid, 'caption': znt, 'parse_mode': 'HTML', 'reply_markup': json.dumps({'inline_keyboard': [[{'text': '• عودة •', 'callback_data': 'back'}]]})})
         return
 
-    # --- إنشاء الصورة (Async) ---
+    # --- معالجة طلب إنشاء الصورة ---
     if zmsg and ztx and ztx != '/start' and zstd.get('step') == 'awaiting_text' and zstd.get('mode') == 'create':
         zcur = zstd.copy()
         if os.path.exists(zstf): os.remove(zstf)
@@ -335,6 +334,7 @@ async def handle_telegram_update(zupd):
         await zec(zfr, 'unlock')
         return
 
+    # --- استقبال الصورة للتعديل ---
     if zstd.get('step') == 'awaiting_image' and zstd.get('mode') == 'edit' and zpho:
         zfid = zpho[-1]['file_id']
         zfinfo = await ze('getFile', {'file_id': zfid})
@@ -347,7 +347,7 @@ async def handle_telegram_update(zupd):
             await ze('sendMessage', {'chat_id': zch, 'text': "<b>تم استلام الصورة بنجاح! أرسل الآن نص التعديل المطلوب</b>", 'parse_mode': 'HTML', 'reply_markup': json.dumps({'inline_keyboard': [[{'text': '• عودة •', 'callback_data': 'back'}]]})})
         return
 
-    # --- تعديل الصورة (Async) ---
+    # --- معالجة طلب تعديل الصورة ---
     if zmsg and ztx and zstd.get('step') == 'awaiting_text_edit' and zstd.get('mode') == 'edit' and 'image' in zstd:
         zcur = zstd.copy()
         if os.path.exists(zstf): os.remove(zstf)
@@ -401,7 +401,7 @@ async def handle_telegram_update(zupd):
             await ze('sendMessage', {'chat_id': zch, 'text': "<b>مرحباً يا صديقي، يرجى تشغيل البوت والبدء في استكشاف الميزات المتوفرة</b>", 'parse_mode': 'HTML', 'reply_markup': json.dumps({'inline_keyboard': [[{'text': '• تشغيل •', 'callback_data': 'back'}]]})})
         return
 
-# --- مسارات Quart للـ Webhook السحابي ---
+# --- مسارات Quart المخصصة لـ الويب هوك السحابي ---
 
 @app.route('/')
 async def index():
@@ -411,10 +411,7 @@ async def index():
 async def telegram_webhook():
     update = await request.get_json()
     if update:
+        # معالجة فورية وتمرير الطلب في الخلفية لتفادي توقف الويب هوك (Timeout)
         asyncio.create_task(handle_telegram_update(update))
     return jsonify({'status': 'success'}), 200
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
-            
+        
