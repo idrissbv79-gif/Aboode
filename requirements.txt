@@ -2,6 +2,7 @@ quart==0.19.5
 aiohttp==3.11.11
 aiosqlite==0.20.0
 hypercorn==0.17.3
+aiohttp
 
 
 
