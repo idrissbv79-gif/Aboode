@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 
 # --- المتغيرات الثابتة ---
-TOKEN = os.getenv("BOT_TOKEN", "zzzzzzz")  # يفضل وضع التوكن في البيئة المتغيرة لـ Render
+TOKEN = os.getenv("BOT_TOKEN", "8334265486:AAFquScv4mkArgxUD4nkFV3usc_s3TNthlw")  # يفضل وضع التوكن في البيئة المتغيرة لـ Render
 IMAGE_URL = 'https://t.me/Z_O_Z_0o0/36'  
 API_URL = 'https://zecora0.serv00.net/ai/NanoBanana.php'  
 STICKER_ID = 'CAACAgIAAxkBAAERGrpp6qpwhZeU1z7ksy3kgUrtPadzwAACQgEAAs0bMAgEAoCtK287vjsE'  
