@@ -2,21 +2,22 @@ import g4f
 import time
 import re
 import requests
+import os
 from flask import Flask, request
 
 app = Flask(__name__)
 
 # إعدادات إنستغرام
-# USER_ID: 8352764359
+# معرف المستخدم: 8352764359
 INSTA_TOKEN = 'EAAUl1OesGpoBR3HkSfyp7gRADTGOQ2mZC5eBatqtgC6a7kv234v0T8qlo3GuQskq6XNxzyZBrZCNIRJYxZBkN3dHt15SQ34mwwf5lJvHNFqCgGLbKCXgo4FU4abV0wG8ZAaqdqphehF5liLbZCSOgnVTuZCjAk3dvXoAMTRmJcot2cxZAzTVb3aPPYMeC67wZCF8cx8QRZAxPwGBdJzL7OsQkh38nLgF67tpsOjUou6mBM5A9xLxwvwpaC0XwwftyRXsZCDHj37H9vGjAfSijGlmyuBhERY'
 WEBHOOK_SECRET = 'idriss990'
 
-# وظيفة التحقق من التوكن
+# وظيفة التحقق من التوكن (محدثة للإصدار v20.0 لتجنب خطأ username)
 def verify_token():
-    url = f"https://graph.facebook.com/v20.0/me?fields=id,username&access_token={INSTA_TOKEN}"
+    url = f"https://graph.facebook.com/v20.0/me?fields=id&access_token={INSTA_TOKEN}"
     response = requests.get(url)
     if response.status_code == 200:
-        print("✅ التوكن يعمل بنجاح:", response.json().get('username'))
+        print("✅ التوكن يعمل بنجاح والاتصال بـ API سليم.")
         return True
     else:
         print("❌ التوكن غير صالح أو انتهت صلاحيته:", response.json())
@@ -87,8 +88,8 @@ def handle_insta_message(chat_id, text):
         print(f"Error: {e}")
 
 if __name__ == '__main__':
-    # بدء التحقق قبل تشغيل السيرفر
     if verify_token():
-        app.run(port=5000)
+        app.run(host='0.0.0.0', port=5000)
     else:
         print("توقف البرنامج بسبب فشل التحقق من التوكن.")
+    
