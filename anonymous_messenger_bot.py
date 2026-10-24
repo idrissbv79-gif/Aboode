@@ -34,7 +34,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 # إعدادات البوت — ضع التوكن هنا مباشرة كما طلبت
 # ============================================================================
 
-PAGE_ACCESS_TOKEN = "ضع_توكن_الصفحة_هنا"
+PAGE_ACCESS_TOKEN = "EAAMJBZBOZCnhsBS2uZAjq6wXePVtM46ZBgtL5ZAOmbCtgkNeoLNNw9oYLY6wwlfOrkEMC7QWOljwqBO0OoZC7FWwUuWrZAkvFZCJ4mTh911KBqLzcZCAIo5c9CFYb6HTkCHsX3EqoiZAtFBoqat5tXDRp79HXa3Odpf5vm2GiZAhFY8CMO5Q6s8QYj6uC1sNZAKiDq0JQ8TNdgZDZD"
 ADMIN_CODE = "idriss888"
 GRAPH_API_VERSION = "v23.0"
 POLL_SECONDS = 3
