@@ -1,7 +1,4 @@
-python-telegram-bot>=21.0
-httpx>=0.27.0
-httpcore>=1.0.0
-flask
+# لا توجد مكتبات خارجية مطلوبة
 
 
 
